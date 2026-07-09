@@ -1,0 +1,38 @@
+github:
+  username: "Yukun-Cui"
+  token_env: "GITHUB_TOKEN"
+  repo: "flagos-ai/FlagGems"
+
+paths:
+  review_fetcher_dir: "/root/baai-internship/pr_review_loop/github_reviews"
+  deepseek_workflow_dir: "/root/baai-internship/pr_review_loop/deepseek-workflow"
+  records_root: "/root/baai-internship/pr_review_loop/records"
+
+workflow:
+  dry_run: true
+  auto_push: false
+  auto_reply: false
+  execute_fixers: false
+  execute_local_validation: false
+  execute_claude_review: false
+  execute_audit: false
+  wait_ci: false
+  ci_timeout: 3600
+  ci_poll_interval: 30
+  generate_ci_fix_tasks: true
+  worktree_root: "/root/pr_worktrees"
+  worktree_template: ""
+  fixer_parallelism: 3
+  max_reviews_per_fixer: 2
+  max_files_per_fixer: 3
+  max_fix_rounds: 2
+
+commands:
+  # These are shell command templates. Keep them empty until the matching CLI is
+  # installed and tested in your environment.
+  fixer_command: ""
+  validation_command: ""
+  claude_review_command: "python3 /root/baai-internship/pr_review_loop/tools/claude_review.py --task-dir {task_dir} --worktree /root/pr_worktrees/pr{pr_num} --cwd /root/FlagGems --timeout 900"
+  audit_command: "python3 /root/baai-internship/pr_review_loop/tools/codex_audit.py --task-dir {task_dir} --worktree /root/pr_worktrees/pr{pr_num}"
+  commit_command: "python3 /root/baai-internship/pr_review_loop/tools/commit_approved_prs.py --run-dir {run_dir} --worktree-root /root/pr_worktrees"
+  push_command: "python3 /root/baai-internship/pr_review_loop/tools/push_approved_prs.py --run-dir {run_dir} --repo flagos-ai/FlagGems --remote fork --worktree-root /root/pr_worktrees"

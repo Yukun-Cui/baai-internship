@@ -1,0 +1,6 @@
+# Example operator list for batch_pr_submit.
+# One operator per line; blank lines and '#' comments are ignored.
+# Copy this to your own list (e.g. operators_pending.txt, which is gitignored).
+relu
+add
+mul

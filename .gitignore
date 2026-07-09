@@ -1,0 +1,36 @@
+# 运行时输出
+results/
+reports/
+**/logs/
+**/logs_*/
+*.log
+*.jsonl
+output.md
+deepseek-workflow/tasks/
+deepseek-workflow/tmp/
+github_reviews/results/
+pr_review_loop/records/
+
+# Python
+__pycache__/
+
+# Claude Code 运行时配置（程序自动生成）
+**/.claude_config/
+
+# 敏感文件
+.env
+**/.env
+batch_pr_audit/config.env
+batch_pr_submit/config.env
+
+# Auto-Gen specific exclusions
+auto_gen/results/
+auto_gen/*.txt
+!auto_gen/ops_list.txt
+!auto_gen/ops_list_enflame.txt
+
+# batch_pr_submit runtime artifacts (operator lists, status, per-run outputs)
+batch_pr_submit/operators_*.txt
+batch_pr_submit/agent_status.json
+batch_pr_submit/*_upstream_check.md
+batch_pr_submit/logs/

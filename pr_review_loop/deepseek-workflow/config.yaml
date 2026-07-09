@@ -1,0 +1,23 @@
+workflow_name: deepseek-workflow
+planner: codex
+executor: claude-code-with-deepseek
+reviewer: codex
+
+paths:
+  tasks: deepseek-workflow/tasks
+  rules: deepseek-workflow/rules
+  templates: deepseek-workflow/templates
+
+execution:
+  require_handoff: true
+  require_execution_log: true
+  require_review: true
+  stop_on_uncertainty: true
+  default_proxy: ""
+  expected_model: claude-opus-4-8
+
+safety:
+  forbid_destructive_commands: true
+  forbid_force_push: true
+  require_tests_when_code_changes: true
+  require_user_approval_for_external_network: true

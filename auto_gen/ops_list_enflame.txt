@@ -1,0 +1,13 @@
+# 燧原(Enflame / Suiyuan)后端待生成算子列表
+# 目标架构：gcu300（可在 config.yaml 的 enflame.arch 修改）
+#
+# 格式说明：
+#   - 每行一个算子名
+#   - 支持 aten:: 前缀和 .Tensor/.Scalar 等重载后缀（会自动去除）
+#   - # 开头为注释
+#
+# 可用 extract_enflame_failed_ops.py 从 Excel 自动生成本列表。
+#
+# 示例：
+relu
+sigmoid

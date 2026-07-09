@@ -1,0 +1,383 @@
+---
+name: flaggems-pr-submit
+description: >
+  This skill should be used when submitting FlagGems operator PRs, reviewing operator code before
+  submission, preparing operator code for PR, or when the user mentions "提PR", "提交算子",
+  "submit operator", "PR提交", "代码审核", "pre-commit". It automates code review, validates
+  completeness and compliance, runs pre-commit and worktree tests, and directly submits PR
+  to upstream with full description including speedup data.
+---
+
+# FlagGems 算子 PR 提交 Skill
+
+提交流程：规范名查询 → 生成 source/impl/canonical 命名计划 → 建分支 → 提取 worktree 代码(6文件) → source/impl 到规范名的系统性重命名 → 脚本验证 → pre-commit → push → 创建 PR → 回填链接。
+
+## Rules（违反会导致 PR 被拒）
+
+1. **先跑脚本再 commit** — `check_operator.py` 必须 0 errors
+2. **dtype 默认用常量** — test 用 `utils.FLOAT_DTYPES`，benchmark 用 `consts.FLOAT_DTYPES`。CUDA 不支持时可硬编码 `[torch.float32]` 但必须加注释
+3. **下划线命名** — 前导 `_` 的算子，mark/yaml id/文件名去掉下划线，其余保留（详见 `references/naming.md`）
+4. **不导出 triton kernel** — `__all__` 只导出 wrapper（脚本检查）
+5. **_FULL_CONFIG 映射到 wrapper** — 不是 kernel 函数（脚本检查）
+6. **yaml 条目唯一** — 不允许重复 id（脚本检查）
+7. **PR 描述用英文** — 模板见 `references/pr-template.md`
+8. **禁止调用私有 API** — `torch._xxx` 在测试/benchmark 中禁用（脚本检查）。允许被测算子本身的 aten dispatch
+9. **每个 PR 只含一个 aten 算子** — 脚本通过 git diff 自动验证
+10. **使用规范命名** — 提交前用 `operator_registry.py lookup` 查询；如果生成名和规范名不同，最终 diff 必须全部使用规范名
+11. **回填 PR 链接** — PR 创建后必须 `operator_registry.py backfill`
+12. **dtype 预检测** — 不确定时默认 `[torch.float32]`
+13. **gems_assert_close 不接受 rtol** — 只支持 atol（脚本检查）
+14. **非 pointwise benchmark 从 worktree 提取** — 必须覆盖 `set_shapes` 防止 CI 覆盖。不要用 `GenericBenchmark` + 自定义 `input_fn`
+15. **benchmark op_name 与 pytest mark 一致** — 脚本检查
+16. **无意义别名封装禁止** — 如 `_j1 = tl_extra_shim.j1`，直接调用原函数
+17. **禁止 Co-Authored-By** — commit message 中不得包含（脚本检查）
+18. **kernel 文件头固定** — 算子实现文件必须以版权/Apache License 段开头，随后紧跟 KernelGen 注释（脚本检查）
+19. **代码必须与 worktree 原版一致** — 不允许重写测试逻辑，仅允许 import 调整和格式化
+20. **提交前获取加速比** — `gen_pr_description.py` 或 CI 日志；本地 speedup 低于阈值只作为 warning/记录项，不阻断提交，但 benchmark 必须能运行且有数据
+21. **清理无效 if/else 分支** — pointwise_dynamic 已处理类型分发时不需要 isinstance
+22. **hardcode size 需加注释** — kernel BLOCK、test shapes、benchmark shapes 都需注释说明原因并记录到 pr状态记录.md
+23. **测试参数用公共变量** — `utils.FLOAT_DTYPES`、`utils.POINTWISE_SHAPES` 等
+24. **所有异常记录到 pr状态记录.md**
+25. **未注册/未测试函数必须删除** — 含未调用的 `@use_tl_extra` 桩（脚本检查）
+26. **核心计算必须用 Triton** — anti_hack.py Layer 1 自动扫描（脚本检查）。`@use_tl_extra` + `pass` 是合法模式
+27. **PR 描述由脚本生成** — `gen_pr_description.py` 输出 JSON，映射到模板
+28. **禁止 inplace mark** — 除非算子本身是 inplace（脚本检查）
+29. **不修改上游已有测试** — 只新增，不改已有函数
+30. **概率算子用统计验证** — mean ≈ p，不能只查 0/1
+31. **不支持的 dtype 在 wrapper 加 assert**
+32. **不删 worktree 现有注释**
+33. **测试函数命名 test_<op>** — 禁止 test_perf_ / test_accuracy_（脚本检查）
+34. **先提交通用版，再提交特化版**
+35. **Testing 描述写 "Validated against reference on device"**
+36. **nan 比较用 gems_assert_close(equal_nan=True)** — 不自定义 nan 逻辑
+37. **yaml/init/mark 注册完全一致** — 要有都有，要没有都没有（脚本交叉验证）
+38. **overloaded ops yaml 拆成独立条目** — 参考 `eq` / `eq_scalar` 模式
+39. **special.* yaml for 用 aten dispatch 格式** — yaml `for` 和 `_FULL_CONFIG` 中 `special_xxx` 必须写成 `special.xxx`（脚本检查）
+40. **yaml kind 必须准确** — resize/clone 等 Tensor 操作不能写 Math，reduction 类写 Reduction（脚本检查）
+41. **_FULL_CONFIG 不能重复注册** — 同一 aten name 只能出现一次（脚本检查）
+42. **inplace 变体必须完整** — `__all__` 导出了 `xxx_` 则 yaml + _FULL_CONFIG + test + benchmark 都必须有（脚本检查）
+43. **inplace 测试必须比较 mutated input** — 不能只 assert 返回值，还要比较被修改的原始 tensor（脚本检查）
+44. **kernel 禁止模块级全局变量** — reviewer 要求移入函数体内（脚本检查）
+45. **variant/canonical ID 先查 precedent** — 新增前检查 yaml/config/test/benchmark；真实 variant 独立覆盖，alias 使用 canonical id
+46. **benchmark op_name 固定为 canonical/variant id** — 不用参数化 f-string 生成 op_name（脚本检查）
+47. **logger 文案格式固定** — 通用算子用 `GEMS <OP>`；backend 特化算子用 `GEMS_VENDOR <OP>`，均 uppercase
+48. **autotune 配置优先外置** — 不在 kernel 文件写大段 inline `triton.Config(...)`；Nvidia 通用配置放 `_nvidia/tune_configs.yaml`
+49. **yaml 长文案要可读** — `description` 等长文本用 block scalar 或合理换行，不提交超过 120 字符的单行描述
+50. **必须证明真实 dispatch 路径被测到** — public API 可能绕过 FlagGems 时，加直接 wrapper/`torch.ops.aten` 测试；autograd 实现要有 backward smoke
+51. **新提交分支必须新鲜且无冲突** — push 或请求 review 前 fetch upstream，并通过 `check_operator.py` 的上游冲突检查，证明当前分支可与 `upstream/master` 无冲突合并
+52. **Performance 描述必须清晰分组** — PR body 的 Performance 按 operator/variant 分 `###` 小节，表格包含 `dtype`、`Size`、Torch/Gems latency、Speedup；benchmark 输出含 TFLOPS 时必须记录 `TFLOPS` 列；每个 variant 单独给 Arithmetic Mean Speedup
+53. **backend 特化仅在需要时触发额外校验** — 只有当 PR 明确包含 `src/flag_gems/runtime/backend/**` 变更，或用户明确标注 `(muxi特化)` / `(tianshu特化)` 等 backend 特化时，才执行 backend specialization gate；普通算子不得被额外 backend 规则干扰
+
+### Review Hygiene Rules（普通算子 PR）
+
+以下规则用于减少 reviewer churn；它们不替代上面的提交门禁，只约束普通 operator PR 的 diff、文案和 reviewer 可见代码形态。
+
+1. **禁止污染全局 infra 文件** — 普通算子 PR 不得修改 `tools/vendor.sh`、`setup.sh`、`tools/env.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 或全局依赖 pin。若 CI 在安装依赖、checkout、环境初始化阶段失败，先归类为 upstream/infra 环境问题并等待或基于最新 `upstream/master` 重建干净分支；不要在算子 PR 中改依赖绕过。
+2. **PR diff 必须保持 operator-scoped** — push 后或请求 review 前运行 `gh pr diff <PR> --repo flagos-ai/FlagGems --name-only`。允许文件通常只有 `src/flag_gems/ops/<op>.py`、`tests/test_<op>.py`、`benchmark/test_<op>.py`、`conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/__init__.py`；仅当当前算子确实需要时，允许 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml` 或 `benchmark/core_shapes.yaml`。若出现非预期文件，重新基于最新 `upstream/master` 创建干净分支并重新提取/提交，不用 rebase 或 infra patch 掩盖。
+3. **logger 位置必须 reviewer 友好** — public wrapper 的 `logger.debug("GEMS <OP>")` 应是 docstring 后第一条有意义语句，先于输入检查、shape normalization、dtype cast 等逻辑。message 继续遵循 Rule 47 的 uppercase underscore 格式；确有例外时必须能用 sibling precedent 解释。
+4. **Benchmark class 保持 module-scoped** — `benchmark/test_<op>.py` 中自定义 benchmark class 必须定义在模块顶层，`test_<op>()` 只负责实例化并 `run()`。不得在 pytest test function 内定义 class。
+5. **禁止空壳 benchmark override** — 不保留只调用 `super().set_shapes(...)` / `super().set_more_shapes(...)` 且不改变行为的 override；只有实际改变 shapes、输入构造或 benchmark 行为时才覆盖。
+6. **PR body 不出现自动化内部文案** — PR 描述不得包含 `operator not in summary`、`TODO`、`FIXME`、`UNKNOWN`、parser/debug/artifact 等内部状态或调试词。面向 reviewer 的缺省文案使用 `Not benchmarked`、`Not applicable` 或 `Skipped: <short reason>`。
+7. **skip/xfail 必须带 issue 引用** — 新增 `pytest.mark.skip`、`skipif`、`xfail` 时，reason 必须包含 issue URL 或 `#<number>`。没有可引用 issue 时，不要静默跳过；报告 BLOCKED 或让用户决定是否先创建 issue。
+8. **新算子 metadata 保守** — 新增 KernelGen 算子默认使用 alpha/incubating 语义（例如 `stages: alpha: '5.4'`），不得声称 `stable`、`1.0` 或历史版本已支持，除非上游已有明确 precedent。
+
+### Kernel 文件头规则
+
+新增或迁移算子实现文件必须以以下文件头开头；`# Generated by KernelGen` 必须保留在版权/License 段之后：
+
+```python
+# Copyright 2026, The FlagOS Contributors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Generated by KernelGen: https://github.com/flagos-ai/KernelGen
+```
+
+### 规范名重命名规则
+
+脚本将区分三个名字：
+
+- `source_name`：生成器/worktree 文件名，例如 `Cross_Attention`。
+- `impl_name`：worktree 内部 wrapper / pytest mark / benchmark `op_name`，例如 `cross_attention`。
+- `canonical_name`：最终提交、注册、PR、backfill 使用的规范名，例如 `CrossAttention`。
+
+如果 `operator_registry.py lookup <op>` 查到的规范名与输入名不同，或通过 `--canonical-name` 显式指定规范名，最终提交必须把 `source_name` 和 `impl_name` 都系统性重命名到 `canonical_name`：
+
+- `src/flag_gems/ops/<canonical_name>.py`
+- `tests/test_<canonical_op_id>.py`
+- `benchmark/test_<canonical_op_id>.py`
+- wrapper 函数、`ops/__init__.py`、`__all__`、`_FULL_CONFIG`、`operators.yaml id/for`、pytest mark、benchmark `op_name` 全部使用规范名
+- PR branch、commit message、PR title、PR body、registry backfill 全部使用规范名
+
+生成名只允许作为 worktree/source 读取来源；规范化后 `check_operator.py --strict` 会检查旧生成名是否残留在注册面。
+
+示例：
+
+```text
+source_name: Cross_Attention
+impl_name: cross_attention
+canonical_name: CrossAttention
+worktree: .worktrees/gen-Cross_Attention
+final file: src/flag_gems/ops/CrossAttention.py
+```
+
+如自动识别不到 source/canonical 关系，可显式传参：
+
+```bash
+python scripts/extract_from_worktree.py CrossAttention \
+  --source-name Cross_Attention \
+  --impl-name cross_attention \
+  --canonical-name CrossAttention \
+  --repo-dir /root/FlagGems
+```
+
+### 性能阈值规则
+
+正确性、注册完整性、测试通过、benchmark 可运行是硬门槛；benchmark speedup 高低不是硬门槛。
+
+如果本地 H20 平均 speedup 低于脚本阈值，`submit_operator.py` 只输出 warning 并记录 `LOW_SPEEDUP`，继续提交 PR。PR 描述仍必须如实包含 benchmark 结果；如果后续 CI 机器数据更好，可保留 PR，否则再手动更新描述或优化 kernel。
+
+### PR Performance 描述格式
+
+`submit_operator.py` 生成 PR body 时必须使用清晰的 benchmark 表：
+
+- `## Performance` 下先写测试命令：`pytest benchmark/test_<op>.py --level core` (NVIDIA H20)
+- 每个 operator/variant 单独一个 `### <Operator>` 小节；in-place variant 显示为 `<Operator> (in-place)`
+- 表格列固定包含 `dtype`、`Size`、`Torch Latency (ms)`、`Gems Latency (ms)`、`Speedup`
+- 如果 benchmark 输出包含 TFLOPS，必须额外显示 `TFLOPS` 列，不能丢失
+- 每个 operator/variant 后单独列 `Arithmetic Mean Speedup`
+- `Multi-backend Testing` 的 Nvidia speedup 多 variant 时用 `/` 连接，例如 `1.175/1.194`
+
+### Backend Specialization Gate（仅当 PR 包含 backend 特化时）
+
+如果 `git diff --name-only upstream/master...HEAD` 包含 `src/flag_gems/runtime/backend/**`，或任务明确要求特化 backend，则额外执行以下检查；否则跳过。
+
+#### 触发条件
+
+- PR 标记为 `(muxi特化)`、`(tianshu特化)`、`(ascend特化)`、`(hygon特化)`
+- 或 diff 中包含 backend 目录文件
+- 或 extractor 明确从 fork 特化分支取出了 backend 文件
+
+#### 必查项
+
+- backend 文件名、模块名、import/export、wrapper 名不得残留 `source_name`
+- backend wrapper 的 public signature 和输入语义必须与通用 wrapper 一致
+- backend wrapper 如果接收 logits，不能偷偷改成接收 softmax probabilities；必须与通用实现同语义
+- `backend/ops/__init__.py` 必须导出当前算子对应符号
+- backend 特化文件必须进入 pre-commit、py_compile、check_operator 的验证范围
+- backend 特化不允许单独新造一套命名，必须遵循本 PR 的 name plan
+- 如果 backend 特化无法在本地验证 dispatch 路径，必须在 execution.md 里写明原因和验证边界
+
+#### 允许跳过
+
+- 没有 backend 文件的普通 PR
+- 仅通用/Nvidia 代码修改
+- 仅修文档、模板或 README，不涉及 backend 代码
+
+## Environment
+
+| Item | Value |
+|------|-------|
+| Repo | Default `/root/FlagGems`; caller-provided `--repo-dir` overrides this |
+| Fork | Caller-provided git remote / `GH_TOKEN` identity |
+| Upstream | `flagos-ai/FlagGems` |
+| Worktrees | `/root/FlagGems/.worktrees/gen-<op>` unless `--repo-dir` overrides repo |
+| Token | `GH_TOKEN` from the current process environment |
+| Data | `/root/baai-internship/skills/flaggems-pr-submit/data/规范名.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/第一批pr算子.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/pr状态记录.md` |
+
+数据文件默认集中在 skill 的 `data/` 目录；如需临时覆盖，可使用 `FLAGGEMS_PR_SUBMIT_DATA_DIR`、`FLAGGEMS_NORM_XLSX`、`FLAGGEMS_PR_XLSX`、`FLAGGEMS_PR_RECORD_PATH`。
+
+不要在 skill、日志或 PR 内容中写入 token。默认使用 `/root/FlagGems`；如果调用方或批量脚本明确给出 `--repo-dir`，以调用方传入值为准。
+
+## Workflow（模型只需调用 3 个命令）
+
+**脚本目录: `/root/baai-internship/skills/flaggems-pr-submit/scripts/`**
+
+### Phase 0: Name Lookup
+```bash
+cd /root/FlagGems
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry.py lookup <op>
+```
+
+### Phase 1: Preparation
+```bash
+cd /root/FlagGems
+git checkout -b pr/<op> upstream/master
+```
+确认算子不存在于上游。
+❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，cherry-pick 容易带入旧基线并造成 PR merge conflict。
+❌ **禁止 rebase** — 分支基于 upstream/master 创建，不需要 rebase。
+
+### Phase 2: Extract Code（一步完成，禁止手动编写）
+```bash
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_worktree.py <op> --repo-dir /root/FlagGems
+# 如果本地规范名表尚未覆盖特殊映射，可显式指定：
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_worktree.py <canonical-op> --source-name <worktree-op> --impl-name <worktree-wrapper-op> --canonical-name <canonical-op> --repo-dir /root/FlagGems
+```
+脚本自动从 worktree 提取 6 个文件：kernel、test、benchmark、ops/__init__.py、__init__.py、operators.yaml。
+如果 `source_name != canonical_name` 或 `impl_name != canonical_name`，脚本会在提取后系统性重命名到规范名，并写入 `.name_plan/<canonical>.json` 供 `check_operator.py` 检查旧名残留。
+**所有注册按字母序插入，所有代码从 worktree 原样提取；规范名迁移只做机械重命名。禁止手动编写 test/benchmark 代码。**
+
+脚本完成后检查 operators.yaml 的 description：如果是默认占位 `Triton kernel implementation for <op>`，必须替换为该算子的 PyTorch 文档一句话描述（英文）。
+
+### Phase 3-7: Validate, Test, Submit（一步完成，禁止手动跳过）
+```bash
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.py <op> --repo-dir /root/FlagGems --gpu <N>
+```
+脚本串行执行 9 步：check_operator → pre-commit → **本地测试** → **本地 benchmark** → PR描述生成 → commit → push → 创建 PR → 回填链接。
+**任何正确性/注册/测试/benchmark 可运行性步骤失败立即中断退出。不允许手动执行单独步骤来绕过。低于 speedup 阈值只记录 warning，不中断。**
+
+❌ **禁止手动创建 PR** — 不允许直接调用 `gh pr create` / `gh pr edit` / `gh pr merge`；创建 PR 和 PR body 必须由 `submit_operator.py` 完成。
+❌ **禁止删除上游已有实现文件** — 如果独立提交当前算子需要删除/重命名 upstream/master 已存在的实现、测试或 benchmark，必须报告 BLOCKED，不得自行“修复”为大重构。
+❌ **禁止修改上游已有测试/benchmark 函数** — 当前算子只能新增或迁移本算子必要文件；遇到已有测试结构冲突时报告 BLOCKED。
+❌ **禁止跳过测试** — 测试失败说明代码有问题，必须修复后重新提交。
+❌ **禁止跳过 benchmark** — 无性能数据的 PR 不提交。benchmark 失败时修复代码或放弃该算子；benchmark 跑通但 speedup 低于阈值允许提交，只在日志和 PR 描述中如实展示。
+
+可选参数：
+- `--dry-run` — 只验证不提交（调试用，仍会运行测试和 benchmark）
+- `--gpu <N>` — 测试/benchmark 用的 GPU 编号（默认 `0`）。**脚本内部会按此值设置 `CUDA_VISIBLE_DEVICES`，并覆盖命令行外层 `CUDA_VISIBLE_DEVICES` 前缀，因此选卡必须用 `--gpu`，写在命令前的 `CUDA_VISIBLE_DEVICES=<N>` 会被忽略。**
+- `--token`、`--source-name`、`--canonical-name`、`--impl-name` — 高级覆盖项，一般用默认即可。
+
+## References
+
+- `references/workflow.md` — Phase 2 六文件详细模板、代码 review 要点
+- `references/pr-template.md` — PR 描述模板、JSON 字段映射
+- `references/naming.md` — 下划线算子命名规则对照表
+- `references/pr-checklist.md` — 提交前逐项检查清单
+- `references/common-issues.md` — 历史 review 问题汇总
+- `scripts/check_operator.py` — 自动化验证脚本（25+ 检查项）
+- `scripts/gen_pr_description.py` — PR 描述数据生成
+- `scripts/operator_registry.py` — 规范名查询 + PR 链接回填
+
+## check_operator.py 自动检查项一览
+
+| 检查 | 对应规则 | 级别 |
+|------|---------|------|
+| Kernel 文件存在 + 版权/License + KernelGen 文件头 | Rule 18 | error |
+| logging 模块使用 | — | warning |
+| 无 print() | — | error |
+| 无重复函数定义 | — | error |
+| torch import 使用 | — | warning |
+| ops/__init__.py 注册 + 字母序 | Rule 4 | error/warning |
+| _FULL_CONFIG 注册 | Rule 5 | error |
+| operators.yaml 完整性 + 唯一性 | Rule 6 | error |
+| 测试文件 pytest mark | Rule 3 | error |
+| 测试 import 方式 | — | error |
+| gems_assert_close/equal 使用 | — | error |
+| gems_assert_close 无 rtol | Rule 13 | error |
+| 测试函数命名规范 | Rule 33 | warning |
+| dtype 硬编码检查 | Rule 2/23/42 | error |
+| 私有 API torch._xxx | Rule 8 | error |
+| Benchmark pytest mark + op_name | Rule 15 | error |
+| Benchmark dtype 使用 | Rule 2 | error |
+| 代码质量（行长、EOF）| — | warning |
+| 上游冲突检查 | — | error |
+| Git commit message (Co-Authored-By) | Rule 17 | error |
+| Inplace mark | Rule 28 | error |
+| yaml/config 一致性 | Rule 37 | error |
+| Anti-hack Layer 1 (AST) | Rule 26 | error |
+| Anti-hack Layer 2 (dual execution) | Rule 26/40 | error |
+| 单算子 PR | Rule 9 | error |
+| @use_tl_extra 桩函数 | Rule 25 | error |
+| 硬编码超参无注释 | Rule 22/41 | error |
+| Benchmark case 数量 | — | info |
+| 别名封装 | Rule 16 | warning |
+| NaN 处理 (equal_nan) | Rule 36 | warning |
+| Worktree 一致性 (注释/函数数) | Rule 19/32 | warning |
+| Wrapper dtype assert | Rule 31 | warning |
+| special.* yaml for 格式 (dot vs underscore) | Rule 39 | error |
+| yaml kind 合理性 (Tensor/Reduction/Math) | Rule 40 | warning |
+| _FULL_CONFIG 重复条目检测 | Rule 41 | error |
+| Inplace 变体完整性 (__all__→yaml+config+test+bench) | Rule 42 | error |
+| Inplace 测试正确性 (比较 mutated input) | Rule 43 | warning |
+| Kernel 模块级全局变量 | Rule 44 | warning |
+| Benchmark 参数化 op_name | Rule 46 | warning |
+| Kernel inline autotune 配置 | Rule 48 | warning |
+| Logger debug 文案格式 | Rule 47 | warning |
+| YAML description 单行长度 | Rule 49 | warning |
+
+## 模型必须人工检查的规则（无法自动化）
+
+以下规则依赖领域判断，模型每次提交前必须逐项确认：
+
+- [ ] **Rule 12 dtype 预检测** — 该算子 PyTorch 参考实现是否支持 Half/BFloat16？
+  - 判断方法：在 Python 中执行 `torch.<op>(torch.randn(4, dtype=torch.float16, device="cuda"))` 看是否报错
+  - 不确定时默认 `[torch.float32]`，不要猜
+  - 常见不支持 fp16 的：`linalg.*`、`special.*`、`cdist`、`det`、`svd`
+- [ ] **Rule 14 benchmark 类选择** — 非 pointwise 算子是否从 worktree 提取了自定义 Benchmark 子类？
+  - 判断方法：检查 worktree 中 benchmark 是否继承了 `base.OperationBenchmark` 并覆盖了 `set_shapes`
+  - 如果 worktree 用了 `GenericBenchmark` + 自定义 `input_fn`，这是错误模式，必须改为继承子类
+- [ ] **Rule 21 无效分支清理** — pointwise_dynamic 已处理类型分发时，是否有多余的 isinstance 判断？
+  - 判断方法：如果 kernel 使用了 `pointwise_dynamic`，wrapper 中 `if isinstance(x, torch.Tensor)` 分支通常是多余的
+  - 存疑时保留，不要误删
+- [ ] **Rule 29 不修改上游已有测试** — 新增算子时是否无意中改动了同文件中其他算子的测试？
+  - 判断方法：`git diff --stat` 确认只有 6 个文件被修改
+  - 如果 `__init__.py` 中出现非当前算子的改动，立即 revert 该行
+- [ ] **Rule 30 概率算子** — 如果是 dropout/bernoulli/rand 等，测试是否用统计方法验证（mean/variance）而非精确比较？
+  - 判断方法：算子名包含 `rand`/`bernoulli`/`dropout`/`normal`/`poisson`/`multinomial` → 必须用统计验证
+  - 统计验证 = 检查 `mean ≈ expected_p` 且 `var ≈ expected_var`，不是 `gems_assert_close`
+- [ ] **Rule 34 先通用后特化** — 特化版本是否依赖尚未 merge 的通用版？
+  - 判断方法：如果算子名含 `.out`/`.Tensor`/`.Scalar`/`_`(inplace) 后缀，检查基础版是否已在 upstream/master 中
+  - 检查命令：`git show upstream/master:src/flag_gems/ops/<base_op>.py`
+  - 如果基础版未 merge，先提交基础版
+- [ ] **yaml kind 选择** — 算子类别是否正确？resize/clone/view → Tensor，softmax/relu → NeuralNetwork，sum/mean → Reduction，matmul → BLAS
+  - 默认 Math 只适用于数学函数，不要对所有算子都写 Math
+- [ ] **inplace 递归保护** — inplace 版本是否会导致 dispatch 无限递归？
+  - 不要用模块级全局变量存 `_original_xxx_method`，reviewer 会拒绝
+  - 建议用 `torch.ops.aten.xxx` 直接调用或 `untyped_storage().set_()` 等底层 API
+- [ ] **variant/canonical ID 覆盖** — 新增前是否查过 `conf/operators.yaml`、`_FULL_CONFIG`、tests、benchmark？
+  - 真实 variant（inplace/out/Scalar/Tensor overload）必须有对应 yaml id、pytest mark、benchmark `op_name`、测试函数和注册
+  - alias 到已有 canonical ATen operator 时，不新造 mark 或 `op_name`
+  - 最终以 `operators.yaml id` 和 sibling precedent 为准，不以生成器文件名为准
+- [ ] **logger 格式** — 通用算子是否为 `GEMS <OP>`，backend 特化算子是否按 reviewer 最新约定为 `GEMS_VENDOR <OP>`？
+  - `OP` 和 `VENDOR` 均 uppercase
+  - 不要自造 `<VENDOR> GEMS <OP>`、`<VENDOR>_GEMS <OP>` 等格式
+- [ ] **dispatch/direct path validation** — public API 测试是否真的走到 FlagGems 注册实现？
+  - 如果 `torch.<op>` 可能绕过注册，必须增加 direct wrapper 或 `torch.ops.aten.<op>` 测试
+  - autograd Function 类实现必须至少有 backward smoke，确认 `.backward()` 可运行且关键 gradients 非空/正确
+- [ ] **autotune 配置位置** — 新增 `@triton.autotune` 时是否优先使用 `runtime.get_tuned_config("<op>")`？
+  - Nvidia 通用算子配置放 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml`
+  - 必须 inline 时需说明原因并对照 repo 现有例外模式
+- [ ] **分支新鲜度** — push 或请求 review 前是否 `git fetch upstream`，并让 `check_operator.py` 通过上游冲突检查？
+  - 若上游冲突检查失败，本次新提交必须重新基于最新 `upstream/master` 创建分支并重新提取算子，不能带冲突提交上 PR。
+
+## 强制执行策略（模型必须遵守）
+
+39. **check_operator warning = error** — `submit_operator.py` 使用 `--strict` 模式，所有 warning 升级为 error。模型不得手动绕过脚本。
+40. **AI 生成代码不可信** — anti-hack Layer 2 (dual-execution) 会验证 kernel 是否真正使用 Triton 计算。如检测到 hack，拦截 PR 不提交该算子。
+41. **固定 shape 必须注释** — 包括测试中的 parametrize shapes、benchmark 的 `self.shapes`、以及非 parametrize 的局部 `shape = (...)` 变量，上方必须有 `#` 注释说明选择依据。
+42. **dtype 硬编码必须注释或改用常量** — 如 `[torch.float32, torch.float16, torch.bfloat16]` 需改为 `utils.FLOAT_DTYPES`（测试）/ `consts.FLOAT_DTYPES`（benchmark），或在上方加注释说明原因。
+43. **异常自动记录** — `submit_operator.py` 的 `fatal()` 自动追加事件到 `data/pr状态记录.md`，无需手动记录。
+44. **最终门禁防回归** — pre-commit 或 commit 后必须再次执行 strict checker / commit message / changed files 检查，避免已覆盖规则在 push 前被改坏。
+
+## 失败处理（确定性规则，无需判断）
+
+| 失败场景 | 处理方式 | 禁止的做法 |
+|---------|---------|-----------|
+| check_operator 报 error | 修复代码后重新运行脚本 | ❌ 手动执行后续步骤 |
+| pre-commit 3 次后仍失败 | 手动修复格式问题（通常是 F401） | ❌ 跳过 pre-commit |
+| 本地测试失败 | 修复 kernel/test 代码后重新运行脚本 | ❌ 跳过测试 |
+| benchmark 失败 | 修复 benchmark 代码后重新运行脚本 | ❌ 提交无性能数据的 PR |
+| speedup < 阈值 | 继续提交，记录 `LOW_SPEEDUP` 并在 PR 描述中如实展示 | ❌ 伪造或隐藏性能数据 |
+| PR 创建失败 | 检查 token/网络后重试 | ❌ 手动用 gh 命令绕过 |
+| 回填失败 | 手动执行 `operator_registry.py backfill` | 可接受，非阻塞 |
+
+## 禁止的操作（❌ 表示绝对禁止，不是建议）
+
+- ❌ `git add -A` 或 `git add .` — 687 worktrees 会被误加
+- ❌ `git cherry-pick` — worktree 代码结构与上游不同
+- ❌ `git rebase` — 分支已基于 upstream/master
+- ❌ `Co-Authored-By` 在 commit message 中 — CLA CI 会失败
+- ❌ 手动编写 test/benchmark 代码 — 必须从 worktree 提取
+- ❌ 手动执行 submit_operator.py 的单个步骤来绕过失败
+- ❌ 在脚本失败后继续提交流程
