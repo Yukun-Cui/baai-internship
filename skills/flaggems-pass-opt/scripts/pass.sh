@@ -6,12 +6,15 @@
 #   pass.sh gpu                               # 打印并返回最闲置 GPU index
 #   pass.sh reinstall                         # git pull FlagTree 后重装 flagtree
 #   pass.sh restart                           # git pull FlagGems 后重建 FlagGems-opt
-#   pass.sh test    -g <op> [-c <dev|auto>]   # 跑 A/B benchmark
-#   pass.sh all     -g <op> [-c <dev|auto>]   # restart 后跑 A/B benchmark
+#   pass.sh test    -g <op> [-c <dev|auto>] [-k <expr>]   # 跑 A/B benchmark
+#   pass.sh all     -g <op> [-c <dev|auto>] [-k <expr>]   # restart 后跑 A/B benchmark
 #
 # 说明:
-#   -g/--gem   算子名（对应 benchmark/test_<op>.py），默认 var
-#   -c/--cuda  GPU index；传 auto 或省略则自动挑最闲置的卡
+#   -g/--gem     算子名（对应 benchmark/test_<op>.py），默认 var
+#   -c/--cuda    GPU index；传 auto 或省略则自动挑最闲置的卡
+#   -k/--keyword 透传给 pytest 的 -k 表达式；用于过滤掉与优化无关、
+#                因环境（如 torch 预发布版缺 overload）导致的伪失败用例，
+#                例如 addmm 需 -k "not dtype" 绕开 aten.addmm.dtype 伪失败
 
 set -euo pipefail
 
@@ -72,12 +75,16 @@ cmd_restart() {
 # A/B benchmark harness
 # ----------------------------------------------------------------------------
 run_one() {
-    local label="$1" dir="$2" gem="$3"
+    local label="$1" dir="$2" gem="$3" kexpr="$4"
     local log_dir="${BASE_DIR}/logs/${gem}"
     local log="${log_dir}/${label}.benchmark"
     local dump="${log_dir}/${label}.dump"
     local diff="${BASE_DIR}/diff/${gem}.diff"
     local bench="benchmark/test_${gem}.py"
+
+    # -k 表达式作为单个参数安全传给 pytest（避免 "not dtype" 被词分割）
+    local -a kflag=()
+    [[ -n "${kexpr}" ]] && kflag=(-k "${kexpr}")
 
     echo "=================================================================="
     echo " [${label}] ${dir}"
@@ -102,15 +109,15 @@ run_one() {
 
     echo "run MLIR_ENABLE_DUMP=1 ..."
     rm -rf ~/.triton/cache
-    MLIR_ENABLE_DUMP=1 pytest "${bench}" -s -x --level core --dtypes float16 --warmup 0 --iter 1 > /dev/null 2> "${dump}" || true
+    MLIR_ENABLE_DUMP=1 pytest "${bench}" "${kflag[@]}" -s -x --level core --dtypes float16 --warmup 0 --iter 1 > /dev/null 2> "${dump}" || true
 
     echo "run benchmark ..."
     rm -rf ~/.triton/cache
-    pytest "${bench}" -s -x >> "${log}" 2>&1
+    pytest "${bench}" "${kflag[@]}" -s -x >> "${log}" 2>&1 || true
 }
 
 cmd_test() {
-    local gem="$1" dev="$2"
+    local gem="$1" dev="$2" kexpr="${3:-}"
 
     if [[ "${dev}" == "auto" ]]; then
         dev=$(pick_idle_gpu)
@@ -121,11 +128,11 @@ cmd_test() {
     mkdir -p "${log_dir}"
 
     echo "### Optimization OFF (baseline) ###"
-    run_one "orig" "${BASE_DIR}/FlagGems" "${gem}"
+    run_one "orig" "${BASE_DIR}/FlagGems" "${gem}" "${kexpr}"
 
     echo
     echo "### Optimization ON (pass-applied) ###"
-    run_one "opt" "${BASE_DIR}/FlagGems-opt" "${gem}"
+    run_one "opt" "${BASE_DIR}/FlagGems-opt" "${gem}" "${kexpr}"
 
     echo
     echo "=================================================================="
@@ -150,11 +157,12 @@ main() {
     local sub="${1:-}"
     [[ $# -gt 0 ]] && shift || true
 
-    local gem="var" dev="auto"
+    local gem="var" dev="auto" kexpr=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -g|--gem)  gem="$2";  shift 2 ;;
-            -c|--cuda) dev="$2";  shift 2 ;;
+            -g|--gem)     gem="$2";   shift 2 ;;
+            -c|--cuda)    dev="$2";   shift 2 ;;
+            -k|--keyword) kexpr="$2"; shift 2 ;;
             -h|--help) usage 0 ;;
             *) echo "未知参数: $1" >&2; usage 1 ;;
         esac
@@ -164,8 +172,8 @@ main() {
         gpu)       cmd_gpu ;;
         reinstall) cmd_reinstall ;;
         restart)   cmd_restart ;;
-        test)      cmd_test "${gem}" "${dev}" ;;
-        all)       cmd_restart; cmd_test "${gem}" "${dev}" ;;
+        test)      cmd_test "${gem}" "${dev}" "${kexpr}" ;;
+        all)       cmd_restart; cmd_test "${gem}" "${dev}" "${kexpr}" ;;
         ""|-h|--help) usage 0 ;;
         *) echo "未知子命令: ${sub}" >&2; usage 1 ;;
     esac
