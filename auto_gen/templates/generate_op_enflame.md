@@ -38,7 +38,7 @@ cd {{WORK_DIR}}
 
 # 方式 B：运行 pytest（--pytest 模式）
 cd {{WORK_DIR}}
-{{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest tests/TEST_FILE.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
+{{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest tests/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
 ```
 
 > ⚠️ **注意**：必须 `cd {{WORK_DIR}}` 后再执行，脚本依赖 CWD 检测 worktree 根目录。不要在命令中额外 `sys.path.insert`，脚本已处理所有路径。
@@ -83,19 +83,13 @@ src/flag_gems/
             ├── utils/
             └── ops/
                 └── ...
-tests/                                   # 标准测试文件
-├── test_unary_pointwise_ops.py
-├── test_binary_pointwise_ops.py
-├── test_reduction_ops.py
-├── test_norm_ops.py
-├── test_blas_ops.py
-├── test_special_ops.py
-└── accuracy_utils.py
-benchmark/                               # 标准 benchmark 文件
-├── test_unary_pointwise_perf.py
-├── test_binary_pointwise_perf.py
-├── test_reduction_perf.py
-└── ...
+tests/                                   # 测试文件（每算子一个独立文件，通常已存在）
+├── test_<operator>.py                   # 如 test_relu.py；特化时复用，一般无需新建
+└── accuracy_utils.py                    # 共享工具（from . import accuracy_utils as utils）
+benchmark/                               # benchmark 文件（每算子一个独立文件，通常已存在）
+├── test_<operator>.py                   # 如 test_relu.py；特化时复用
+├── base.py                              # UnaryPointwiseBenchmark 等基类
+└── consts.py                            # FLOAT_DTYPES 等常量
 pytest.ini                               # 配置 pythonpath = src
 ```
 
@@ -239,74 +233,23 @@ from .{{OPERATOR}} import {{OPERATOR}}, {{OPERATOR}}_  # 按实际导出的函�
 
 **注意**：**不需要**修改 `src/flag_gems/ops/__init__.py`，也**不需要**修改 `src/flag_gems/__init__.py` 的 `_FULL_CONFIG`。燧原后端通过 `runtime.replace_customized_ops()` 按架构自动替换。
 
-### Step 5: 编写 accuracy 测试
+### Step 5: 使用已有测试验证（不写新测试）
 
-**在 FlagGems 标准测试文件中添加测试用例**，不要写到 `/tmp` 或其他地方。
+燧原特化算子覆盖的是**通用层已有算子**（在 `src/flag_gems/ops/` 中），因此该算子对应的测试文件 `tests/test_{{OPERATOR}}.py` **通常已经存在**。本步骤的目标是**用已有测试来验证**你的燧原特化实现，而**不是**编写新测试。
 
-根据算子类型，选择对应的测试文件：
-- 一元 pointwise → `tests/test_unary_pointwise_ops.py`
-- 二元 pointwise → `tests/test_binary_pointwise_ops.py`
-- reduction → `tests/test_reduction_ops.py`
-- norm → `tests/test_norm_ops.py`
-- 其他 → `tests/test_special_ops.py`
+先确认测试文件是否存在：
 
-**先阅读对应测试文件**，了解现有测试的模式和使用的工具函数（如 `POINTWISE_SHAPES`, `FLOAT_DTYPES`, `to_reference`, `gems_assert_close`, `gems_assert_equal` 等），然后在文件末尾追加新的测试函数。
+```bash
+ls {{WORK_DIR}}/tests/test_{{OPERATOR}}.py
+```
+
+- **如果存在**（绝大多数情况）：无需编写任何测试，直接进入 Step 6 运行它。
+- **如果缺失**（极少数情况）：参考 `tests/test_relu.py` 的写法新建 `tests/test_{{OPERATOR}}.py`，注意：
+  - 通过 `from . import accuracy_utils as utils` 导入共享工具，使用时加 `utils.` 前缀（如 `utils.POINTWISE_SHAPES`、`utils.FLOAT_DTYPES`、`utils.to_reference`、`utils.gems_assert_close`）。
+  - 每个变体用 `@pytest.mark.<变体名>` 标记（如 `@pytest.mark.{{OPERATOR}}`）。
+  - 对精确运算（如 floor、round），使用 `utils.gems_assert_equal` 而非 `utils.gems_assert_close`。
 
 > ⚠️ **燧原约束**：测试**不要**使用 `torch.float64`（不支持 fp64）。如果算子涉及整数，用 `torch.int32` 而非 `torch.int64`（燧原不支持 int64），或依赖算子内部的 int64→int32 转换但避免用 int64 作为参考。
-
-**一元 pointwise 测试模板**：
-```python
-@pytest.mark.{{OPERATOR}}
-@pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_accuracy_{{OPERATOR}}(shape, dtype):
-    inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    ref_inp = to_reference(inp)
-    ref_out = torch.{{OPERATOR}}(ref_inp)
-    with flag_gems.use_gems():
-        res_out = torch.{{OPERATOR}}(inp)
-    gems_assert_close(res_out, ref_out, dtype)
-```
-
-**二元 pointwise 测试模板**：
-```python
-@pytest.mark.{{OPERATOR}}
-@pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_accuracy_{{OPERATOR}}(shape, dtype):
-    inp1 = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    inp2 = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    ref_inp1 = to_reference(inp1)
-    ref_inp2 = to_reference(inp2)
-    ref_out = torch.{{OPERATOR}}(ref_inp1, ref_inp2)
-    with flag_gems.use_gems():
-        res_out = torch.{{OPERATOR}}(inp1, inp2)
-    gems_assert_close(res_out, ref_out, dtype)
-```
-
-#### 测试深度指导
-
-根据算子的计算复杂度，选择合适的测试深度。不要对所有算子都套用最简单的模板，也不要对简单算子过度测试。
-
-**简单算子**（纯逐元素、无 reduce、无特殊参数）如 abs, ceil, neg, relu, bitwise_not：
-- 使用标准 `POINTWISE_SHAPES` + `FLOAT_DTYPES`（或 `INT_DTYPES`）即可
-- 使用 `gems_assert_close`（或 `gems_assert_equal`）统一容差
-- 1 个测试函数 + 1 个 inplace 测试函数（如果有 inplace 版本）
-
-**中等算子**（涉及 reduce、广播、dim 参数、或多输入）如 sum, softmax, mul, pow, index_put：
-- 除标准 shape 外，**额外测试大 reduce 维度 shape**（如 `(1, 8192)`, `(32, 50257)`）
-- 如果算子有 `dim` 参数，**测试不同 dim 值**（dim=0, dim=1, dim=-1），不要只测默认值
-- 对 reduction 算子，额外测试**极端输入**：全零 tensor、含 `inf`/`-inf` 的 tensor
-- 按 dtype 使用**不同容差**：float32 用严格容差 `(rtol=1e-5, atol=1e-5)`，float16 用 `(rtol=1e-3, atol=1e-3)`，bfloat16 用 `(rtol=2e-2, atol=2e-2)`
-- 如果算子支持整数类型（如 mul, pow），额外测试 `INT_DTYPES`（注意用 int32）
-
-**复杂算子**（涉及多步计算、数值稳定性、或模型推理场景）如 layernorm, cross_entropy, nll_loss：
-- 使用**模型推理场景 shape**（如 attention shape `(batch, heads, seq, seq)`、embedding shape `(batch, seq, hidden_dim)`）
-- 全面测试**极端输入**：全零、全相同值、含 nan/inf、one-hot 分布
-- 测试所有 **API 变体**（如 softmax 的 `dtype` 参数、loss 函数的 `reduction` 参数）
-- 测试**边界情况**：标量 tensor `()`、零尺寸 tensor `(5, 0, 0)`、单元素 `(1,)`
-
-**注意**：上面只是模板，你需要根据算子的实际接口和语义调整（输入数据生成方式、断言方式等）。对于精确运算（如 floor, round），应使用 `gems_assert_equal` 而非 `gems_assert_close`。
 
 ### Step 6: 运行 accuracy 测试
 
@@ -318,10 +261,8 @@ def test_accuracy_{{OPERATOR}}(shape, dtype):
 
 ```bash
 cd {{WORK_DIR}}
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest tests/TEST_FILE.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
+CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest tests/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
 ```
-
-请将 `TEST_FILE.py` 替换为对应的测试文件名（如 `test_binary_pointwise_ops.py`）。
 
 **验证算子被调用**：在测试输出中检查是否出现了类似 `GEMS_ENFLAME {{OPERATOR}}` 的 DEBUG 日志。
 
@@ -332,43 +273,18 @@ CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} /root/baai-internship/auto_gen/f
 # 必须显示 worktree 路径，非 /root/FlagGems/
 ```
 
-### Step 6.5: 提交代码
+### Step 7: 运行 benchmark
 
-**当 accuracy 测试全部通过后**，立即将所有改动提交到当前 worktree 的分支：
+燧原特化算子复用**已存在**的 `benchmark/test_{{OPERATOR}}.py`（通常已存在，如 `benchmark/test_relu.py`），**无需**编写新的 benchmark。该文件基于 `from . import base, consts`（如 `base.UnaryPointwiseBenchmark`、`consts.FLOAT_DTYPES`），并已按算子名标记 `@pytest.mark.{{OPERATOR}}`。
 
-```bash
-cd {{WORK_DIR}}
-git add -A
-git commit --author="taooo <gumptao2997@gmail.com>" -m "Add {{OPERATOR}} enflame {{ARCH}} specialized operator implementation"
-```
-
-**必须在运行 benchmark 之前提交**，确保代码变更不会丢失。
-
-### Step 7: 编写 benchmark 并运行
-
-**在 FlagGems 标准 benchmark 文件中添加 benchmark 条目**。
-
-根据算子类型，选择对应的 benchmark 文件：
-- 一元 pointwise → `benchmark/test_unary_pointwise_perf.py`
-- 二元 pointwise → `benchmark/test_binary_pointwise_perf.py`
-- reduction → `benchmark/test_reduction_perf.py`
-- 其他 → `benchmark/test_special_perf.py`
-
-**先阅读对应 benchmark 文件**，了解 `forward_operations` 列表的格式，然后将新算子追加到列表末尾。
-
-**pointwise benchmark 模板**（添加到 `forward_operations` 列表中）：
-```python
-("{{OPERATOR}}", torch.{{OPERATOR}}, FLOAT_DTYPES),
-```
-
-运行 benchmark（同样必须在工作目录下，使用 fix_worktree_import.py）：
+运行 benchmark（必须在工作目录下，使用 fix_worktree_import.py）：
 
 ```bash
 cd {{WORK_DIR}}
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest benchmark/<benchmark_file>.py -m {{OPERATOR}} -vs
+CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} /root/baai-internship/auto_gen/fix_worktree_import.py --pytest benchmark/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs
 ```
 
-> ⚠️ **注意**：`<benchmark_file>.py` 中已有按算子名标记的 `@pytest.mark.xxx`，直接使用 `-m {{OPERATOR}}` 即可筛选。
+> ⚠️ **注意**：特化实现至少不能比通用实现差；如果性能反而下降，需重新优化。
 
 benchmark 输出格式示例：
 ```
@@ -391,6 +307,17 @@ SUCCESS    ...
   4. 重新运行 benchmark 验证优化效果
   5. 如果优化后仍未达到 0.8，但比初始版本有提升，可以接受当前最佳结果
 
+### Step 7.5: 提交代码
+
+**当 accuracy 测试通过、benchmark 也已运行后**，将改动一次性提交到当前 worktree 的分支。
+燧原特化通常**只改**特化实现和其注册文件（不动通用层、不写新测试）：
+
+```bash
+cd {{WORK_DIR}}
+git add -A
+git commit --author="taooo <gumptao2997@gmail.com>" -m "Add {{OPERATOR}} enflame {{ARCH}} specialized operator implementation"
+```
+
 ### Step 8: 输出结果
 
 在所有步骤完成后，你**必须**输出以下 JSON 格式的最终结果。用 ````json` 和 ```` ` 代码块包裹：
@@ -405,19 +332,17 @@ SUCCESS    ...
     "src/flag_gems/runtime/backend/_enflame/{{ARCH}}/ops/{{OPERATOR}}.py"
   ],
   "files_modified": [
-    "src/flag_gems/runtime/backend/_enflame/{{ARCH}}/ops/__init__.py",
-    "tests/test_xxx_ops.py",
-    "benchmark/test_xxx_perf.py"
+    "src/flag_gems/runtime/backend/_enflame/{{ARCH}}/ops/__init__.py"
   ],
   "implementation_mode": "pointwise_dynamic 或 manual_kernel 或 autograd_function",
   "test_results": {
     "total": 12,
     "passed": 12,
     "failed": 0,
-    "test_command": "python -m pytest tests/test_xxx_ops.py -m {{OPERATOR}} -vs"
+    "test_command": "python -m pytest tests/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs"
   },
   "benchmark_results": {
-    "benchmark_command": "python -m pytest benchmark/test_xxx_perf.py -m {{OPERATOR}} -vs",
+    "benchmark_command": "python -m pytest benchmark/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs",
     "data": [
       {
         "dtype": "torch.float16",
@@ -441,7 +366,7 @@ SUCCESS    ...
 2. **代码风格**：严格遵循燧原已有算子代码风格（本地 utils import、`GEMS_ENFLAME` logger 前缀）
 3. **架构隔离**：只在 `{{ARCH}}/ops/` 下创建和注册，不要动其他架构目录
 4. **硬件约束**：不支持 fp64；不支持 int64（需 int64→int32 转换）
-5. **标准测试**：测试和 benchmark 必须写入 FlagGems 标准文件中
+5. **复用已有测试**：特化算子覆盖的是通用层已有算子，优先复用已存在的 `tests/test_{{OPERATOR}}.py` 和 `benchmark/test_{{OPERATOR}}.py`，不新写测试；仅当独立测试文件确实缺失时才参考 `test_relu.py` 新建
 6. **跨后端兼容**：禁止直接调用 `tl.extra.cuda.libdevice`
 7. **字母顺序**：所有注册必须严格按字母顺序插入
 8. **最终代码保留**：无论成功失败，都保留修改的代码在 worktree 中

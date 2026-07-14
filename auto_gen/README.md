@@ -17,7 +17,7 @@
 
 ```bash
 # 安装依赖
-pip install pyyaml openpyxl
+pip install pyyaml openpyxl ruamel.yaml pre-commit
 
 # 安装 Claude Code CLI（如未安装）
 # 参考：https://docs.anthropic.com/claude/docs/claude-code
@@ -68,7 +68,20 @@ python3 orchestrator.py --resume results/summary_<timestamp>.json ops_list.txt
 
 # 恢复时同时重试上次失败的算子
 python3 orchestrator.py --resume results/summary_<timestamp>.json --retry-failed ops_list.txt
+
+# 干跑：不真正启动 Claude Code，只走一遍流程（用于验证配置/调度）
+python3 orchestrator.py --dry-run ops_list.txt
+
+# 跳过 git fetch upstream（离线或 upstream 已最新时）
+python3 orchestrator.py --skip-fetch ops_list.txt
 ```
+
+### 自动化行为说明
+
+- **pre-commit**：启动时会自动检测/安装 pre-commit 并预热钩子环境（worktree 会继承主仓库的钩子）。缺失时会交互式询问是否安装。
+- **upstream fetch**：默认在建 worktree 前 `git fetch upstream`，确保基线分支最新。缺 upstream remote 或失败时降级为警告（非致命），可用 `--skip-fetch` 跳过，或在 config 里设 `auto_fetch_upstream: false`。
+- **注册排序**：算子成功后自动调用 `sort_registrations.py` 对 `conf/operators.yaml`、`src/flag_gems/ops/__init__.py`、`src/flag_gems/__init__.py` 及改动的厂商 `ops/__init__.py` 排序，并 amend 到该次 commit。依赖 `ruamel.yaml`（`pip install ruamel.yaml`）。
+- **完整性校验 + fixup**：CC 声称成功后，`validate_operator.py` 会独立静态检查算子是否真的注册齐全——`conf/operators.yaml` 中每个变体（base / `xxx_` / `xxx.out`）存在且带 `KernelGen` 标签，`tests/test_<op>.py` 与 `benchmark/test_<op>.py` 有对应的 `@pytest.mark.<op>`。若不合格，会在第一次尝试时复用同一 worktree、把缺失项追加到 prompt 里让 CC 补齐（`[FIXUP]`），而不是从头重跑。仅对默认 CUDA 后端生效（厂商后端文件布局不同）；`--dry-run` 下跳过。
 
 ## 目录结构
 
@@ -76,6 +89,8 @@ python3 orchestrator.py --resume results/summary_<timestamp>.json --retry-failed
 auto_gen/
 ├── orchestrator.py              # 主编排脚本
 ├── device_manager.py            # GPU 设备管理器
+├── sort_registrations.py        # 算子注册排序（成功后自动 amend）
+├── validate_operator.py         # 算子完整性校验（触发 fixup 重试）
 ├── config.yaml                  # 配置文件
 ├── .env                         # API 密钥配置（不提交）
 ├── ops_list.txt                 # 算子列表（CUDA 默认）

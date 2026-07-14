@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from device_manager import DeviceManager
 
 try:
+    from validate_operator import validate_operator
+except ImportError:
+    validate_operator = None
+
+try:
     import yaml
 except ImportError:
     yaml = None
@@ -45,6 +50,172 @@ def load_dotenv(env_path: str = None):
                 if key:
                     os.environ[key] = val
     logger.debug(f"Loaded .env from {env_path}")
+
+
+# ---------------------------------------------------------------------------
+# pre-commit management
+# ---------------------------------------------------------------------------
+
+def check_pre_commit(python_path: str) -> bool:
+    """Check if pre-commit is installed in the given Python environment."""
+    try:
+        result = subprocess.run(
+            [python_path, "-m", "pre_commit", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def install_pre_commit(python_path: str) -> bool:
+    """Install pre-commit via pip."""
+    try:
+        subprocess.run(
+            [python_path, "-m", "pip", "install", "pre-commit"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to install pre-commit: {e}")
+        return False
+
+
+def ensure_pre_commit(python_path: str, flaggems_dir: str, dry_run: bool = False):
+    """Check, install, and warm pre-commit hooks."""
+    # Check pre-commit availability
+    if not check_pre_commit(python_path):
+        print("\n⚠️  pre-commit is not installed in your Python environment.")
+        print("   Code style checks require pre-commit to be installed.")
+        response = input("\n   Install pre-commit now? [Y/n]: ").strip().lower()
+
+        if response in ("", "y", "yes"):
+            print("   Installing pre-commit...")
+            if install_pre_commit(python_path):
+                print("   ✅ pre-commit installed successfully\n")
+            else:
+                print("   ❌ Failed to install pre-commit")
+                sys.exit(1)
+        else:
+            print("   ❌ Cannot proceed without pre-commit. Exiting.")
+            sys.exit(1)
+
+    # Install pre-commit hook into main repo (worktrees inherit it automatically)
+    logger.info("Installing pre-commit git hook...")
+    hook_result = subprocess.run(
+        [python_path, "-m", "pre_commit", "install"],
+        cwd=flaggems_dir,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if hook_result.returncode == 0:
+        logger.info("Pre-commit hook installed")
+    else:
+        logger.warning(
+            f"Failed to install pre-commit hook (non-fatal): {hook_result.stderr.strip()}"
+        )
+
+    # Pre-warm hook environments (downloads to ~/.cache/pre-commit/)
+    if not dry_run:
+        logger.info(
+            "Pre-warming pre-commit hook environments"
+            " (first time may take a few minutes)..."
+        )
+        warm_result = subprocess.run(
+            [python_path, "-m", "pre_commit", "install-hooks"],
+            cwd=flaggems_dir,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if warm_result.returncode == 0:
+            logger.info("Pre-commit hook environments ready")
+        else:
+            logger.warning(
+                f"Pre-commit hook warm-up failed (non-fatal): {warm_result.stderr.strip()}"
+            )
+
+
+def sort_and_amend_commit(worktree_path: str, operator: str, base_branch: str = "master"):
+    """Sort operator registrations and amend the commit if changes were needed.
+
+    Uses sort_registrations.py (colocated in this directory). Also sorts any
+    changed vendor backend __init__.py files (metax/iluvatar/enflame modes).
+    """
+    try:
+        sort_script = os.path.join(os.path.dirname(__file__), "sort_registrations.py")
+        if not os.path.exists(sort_script):
+            logger.warning(
+                f"[SORT] sort_registrations.py not found at {sort_script}, skipping sort"
+            )
+            return
+        sort_result = subprocess.run(
+            [sys.executable, sort_script, "--repo-root", worktree_path],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        # Sort any changed vendor backend __init__.py files
+        vendor_init_result = subprocess.run(
+            [
+                "git", "diff", "--name-only", base_branch, "--",
+                "src/flag_gems/runtime/backend/*/ops/__init__.py",
+                "src/flag_gems/runtime/backend/*/*/ops/__init__.py",
+            ],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+        )
+        changed_vendor_inits = [
+            vf for vf in vendor_init_result.stdout.strip().splitlines() if vf
+        ]
+        for vf in changed_vendor_inits:
+            subprocess.run(
+                [sys.executable, sort_script, "--vendor-init", os.path.join(worktree_path, vf)],
+                capture_output=True,
+                timeout=10,
+            )
+
+        if sort_result.returncode == 0:
+            # Amend the commit if sort made changes — only stage the
+            # specific files sort_registrations.py is allowed to modify
+            sort_targets = [
+                "conf/operators.yaml",
+                "src/flag_gems/ops/__init__.py",
+                "src/flag_gems/__init__.py",
+            ] + changed_vendor_inits
+            diff_result = subprocess.run(
+                ["git", "diff", "--quiet", "--"] + sort_targets,
+                cwd=worktree_path,
+                capture_output=True,
+            )
+            if diff_result.returncode != 0:
+                subprocess.run(
+                    ["git", "add", "--"] + sort_targets,
+                    cwd=worktree_path,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "--amend", "--no-edit"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                )
+                logger.info(
+                    f"[SORT] Amended commit with sorted registrations for {operator}"
+                )
+        else:
+            logger.warning(
+                f"[SORT] Failed to sort registrations for {operator} (non-fatal): "
+                f"{sort_result.stderr.strip()}"
+            )
+    except Exception as e:
+        logger.warning(f"[SORT] Error sorting registrations: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +320,8 @@ def launch_cc(
     template_path: str,
     log_dir: str,
     arch: str = "gcu300",
+    dry_run: bool = False,
+    fixup_prompt: str = None,
 ) -> subprocess.Popen:
     """Launch a Claude Code process for an operator."""
     variables = {
@@ -159,6 +332,10 @@ def launch_cc(
         "ARCH": arch,
     }
     prompt = render_template(template_path, variables)
+
+    # Append fixup instructions if this is a validation retry
+    if fixup_prompt:
+        prompt += fixup_prompt
 
     log_path = os.path.join(log_dir, f"{operator}.log")
 
@@ -173,6 +350,31 @@ def launch_cc(
     _token = env.get("ANTHROPIC_AUTH_TOKEN", "")
     _base = env.get("ANTHROPIC_BASE_URL", "")
     logger.debug(f"CC env for {operator}: AUTH_TOKEN={'set(' + _token[:8] + '...)' if _token else 'MISSING'}, BASE_URL={_base or 'MISSING'}")
+
+    # Dry-run mode: simulate CC process without actually launching
+    if dry_run:
+        logger.info(
+            f"[DRY-RUN] Would launch CC for {operator} (GPU={gpu_id}, worktree={worktree_path})"
+        )
+        logger.debug(f"[DRY-RUN] Template variables: {variables}")
+
+        stdout_path = os.path.join(log_dir, f"{operator}.jsonl")
+        with open(stdout_path, "w") as f:
+            f.write(
+                '{"type":"result","result":"```json\\n{\\"operator\\":\\"'
+                + operator
+                + '\\",\\"status\\":\\"success\\",\\"accuracy_passed\\":true,\\"error_message\\":null}\\n```"}\n'
+            )
+        with open(log_path, "w") as f:
+            f.write("[DRY-RUN] Simulated CC execution\n")
+
+        mock_proc = subprocess.Popen(["true"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        mock_proc.wait()
+        mock_proc._stdout_path = stdout_path
+        mock_proc._stderr_path = log_path
+        mock_proc._stdout_file = None
+        mock_proc._stderr_file = None
+        return mock_proc
 
     claude_bin = config.get("claude_bin", "claude")
     cmd = [
@@ -276,8 +478,11 @@ def parse_cc_result(proc: subprocess.Popen, operator: str, worktree_path: str = 
     """
     try:
         # Close file handles first so all data is flushed
-        proc._stdout_file.close()
-        proc._stderr_file.close()
+        # (dry-run mock processes have no file handles)
+        if getattr(proc, "_stdout_file", None) is not None:
+            proc._stdout_file.close()
+        if getattr(proc, "_stderr_file", None) is not None:
+            proc._stderr_file.close()
 
         # Parse stream-json: read lines and find the result event
         result_text = ""
@@ -553,6 +758,66 @@ def load_resume_state(resume_path: str) -> tuple[set, set]:
     return completed, failed
 
 
+def schedule_retry_or_fail(
+    summary,
+    queue: deque,
+    operator: str,
+    attempt: int,
+    max_retries: int,
+    duration: float,
+    result: dict,
+    validation_result: dict = None,
+    needs_fixup: bool = False,
+) -> bool:
+    """Schedule a retry (or fixup) or mark the operator as failed.
+
+    When needs_fixup is True, re-queues the operator with its missing validation
+    items so the next attempt reuses the same worktree and completes them.
+    Returns True if scheduled for retry, False if marked as failed.
+    """
+    if attempt + 1 >= max_retries:
+        logger.error(
+            f"[FAILED] {operator} after {attempt + 1} attempts: "
+            f"{result.get('error_message', 'unknown')}"
+        )
+        summary.update_operator(
+            operator,
+            status="failed",
+            accuracy_passed=result.get("accuracy_passed", False),
+            duration_seconds=round(duration),
+            end_time=datetime.now(timezone.utc).isoformat(),
+            error_message=result.get("error_message"),
+            cc_result=result,
+        )
+        return False
+
+    if needs_fixup and validation_result:
+        logger.warning(
+            f"[FIXUP] {operator} (attempt {attempt + 1}/{max_retries}, "
+            f"reason: validation incomplete)"
+        )
+        error_msg = (
+            f"Validation incomplete: {', '.join(validation_result['missing'][:3])}..."
+        )
+        queue.append((operator, attempt + 1, validation_result["missing"]))
+    else:
+        logger.warning(
+            f"[RETRY] {operator} (attempt {attempt + 1}/{max_retries}, "
+            f"reason: {result.get('error_message', 'unknown')})"
+        )
+        error_msg = result.get("error_message")
+        queue.append((operator, attempt + 1))
+
+    summary.update_operator(
+        operator,
+        status="retrying",
+        duration_seconds=round(duration),
+        error_message=error_msg,
+        cc_result=result,
+    )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
@@ -586,8 +851,14 @@ def run(args):
     max_retries = config.get("max_retries", 3)
     timeout_per_op = config.get("timeout_per_op", 1800) or 0
     poll_interval = config.get("poll_interval", 10)
+    python_path = config.get("python_path", sys.executable)
+    base_branch = config.get("base_branch", "master")
+    dry_run = getattr(args, "dry_run", False)
 
     os.makedirs(log_dir, exist_ok=True)
+
+    # Ensure pre-commit hooks are installed/warmed (worktrees inherit them)
+    ensure_pre_commit(python_path, flaggems_dir, dry_run=dry_run)
 
     # Load operator list
     if is_metax and not args.ops_list:
@@ -643,6 +914,36 @@ def run(args):
             logger.warning("No operators need processing. All are already completed.")
             return
 
+    # Fetch upstream to ensure base_branch is up-to-date
+    auto_fetch = config.get("auto_fetch_upstream", True)
+    if not getattr(args, "skip_fetch", False) and auto_fetch:
+        logger.info("Fetching upstream to ensure base_branch is current...")
+        fetch_result = subprocess.run(
+            ["git", "fetch", "upstream"],
+            cwd=flaggems_dir,
+            capture_output=True,
+            text=True,
+        )
+        if fetch_result.returncode != 0:
+            if "does not resolve" in fetch_result.stderr or "Unknown remote" in fetch_result.stderr:
+                logger.warning(
+                    "upstream remote not found. Add it with:\n"
+                    "  git remote add upstream https://github.com/FlagOpen/FlagGems.git\n"
+                    "Continuing with local base branch (run with --skip-fetch to silence)."
+                )
+            else:
+                logger.warning(
+                    f"git fetch upstream failed (non-fatal): {fetch_result.stderr.strip()}\n"
+                    f"Continuing with local base branch."
+                )
+        else:
+            logger.info("Fetch completed successfully")
+    else:
+        logger.warning(
+            "Skipping upstream fetch (--skip-fetch or auto_fetch_upstream=false). "
+            f"Worktrees will be based on local {base_branch} which may be outdated."
+        )
+
     # Initialize device manager
     device_cfg = config.get("device", {}) or {}
     device_mgr = DeviceManager(
@@ -673,7 +974,13 @@ def run(args):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    logger.info(f"Starting orchestrator: {len(ops)} operators, {len(device_mgr.gpu_ids)} GPUs, max_retries={max_retries}")
+    if dry_run:
+        logger.warning("[DRY-RUN MODE] Simulating workflow without launching Claude Code")
+
+    logger.info(
+        f"Starting orchestrator: {len(ops)} operators, {len(device_mgr.gpu_ids)} GPUs, "
+        f"max_retries={max_retries}" + (" [DRY-RUN]" if dry_run else "")
+    )
 
     while (queue or running) and not shutdown_requested:
         # Launch new tasks if GPUs are available
@@ -682,10 +989,40 @@ def run(args):
             if gpu_id is None:
                 break
 
-            operator, attempt = queue.popleft()
+            # Queue items are (operator, attempt) or (operator, attempt, missing_items)
+            queue_item = queue.popleft()
+            if len(queue_item) == 3:
+                operator, attempt, missing_items = queue_item
+            else:
+                operator, attempt = queue_item
+                missing_items = None
             try:
-                worktree_path, branch = create_worktree(flaggems_dir, operator)
-                proc = launch_cc(operator, worktree_path, gpu_id, config, template_path, log_dir, arch=enflame_arch)
+                # For fixup attempts, reuse the existing worktree so the previous
+                # (successful-but-incomplete) work is preserved instead of rebuilt.
+                if missing_items and operator in summary.data["operators"]:
+                    existing = summary.data["operators"][operator]
+                    worktree_path = existing.get("worktree_path")
+                    branch = existing.get("branch")
+                    if worktree_path and os.path.exists(worktree_path):
+                        logger.info(f"[FIXUP] Reusing existing worktree for {operator}: {worktree_path}")
+                    else:
+                        logger.warning(f"[FIXUP] Existing worktree not found for {operator}, creating new one")
+                        worktree_path, branch = create_worktree(flaggems_dir, operator)
+                else:
+                    worktree_path, branch = create_worktree(flaggems_dir, operator)
+
+                # For fixup attempts, append the missing items to the prompt
+                fixup_prompt = None
+                if missing_items:
+                    fixup_prompt = (
+                        "\n\n---\n\n"
+                        "The previous attempt was successful but incomplete. "
+                        "Please fix the following missing items:\n\n"
+                        + "\n".join(f"- {item}" for item in missing_items)
+                        + "\n\nMake the necessary changes and commit."
+                    )
+
+                proc = launch_cc(operator, worktree_path, gpu_id, config, template_path, log_dir, arch=enflame_arch, dry_run=dry_run, fixup_prompt=fixup_prompt)
 
                 running[operator] = (proc, gpu_id, attempt, worktree_path, time.time())
 
@@ -735,13 +1072,44 @@ def run(args):
                 # Parse result and generate timeline
                 result = parse_cc_result(proc, operator, worktree_path, metax=is_metax, iluvatar=is_iluvatar, enflame=is_enflame, arch=enflame_arch)
                 generate_timeline(proc._stdout_path, operator)
+
+                # Validate operator completeness (operators.yaml, test/benchmark marks).
+                # Only for the default CUDA backend — vendor backends use a different
+                # file layout that this validator doesn't understand.
+                is_vendor_mode = is_metax or is_iluvatar or is_enflame
+                validation_result = None
+                needs_fixup = False
+                if (
+                    result.get("status") == "success"
+                    and not is_vendor_mode
+                    and validate_operator is not None
+                    and not dry_run
+                ):
+                    aten_ops = result.get("aten_ops_registered", [])
+                    try:
+                        validation_result = validate_operator(worktree_path, operator, aten_ops)
+                        if not validation_result["valid"]:
+                            logger.warning(
+                                f"[VALIDATION] {operator} missing {len(validation_result['missing'])} items"
+                            )
+                            # Only fixup on the first attempt to avoid an infinite loop
+                            if attempt == 0:
+                                needs_fixup = True
+                                logger.info(f"[FIXUP] Will resume {operator} to complete missing items")
+                    except Exception as e:
+                        logger.warning(f"Validation failed for {operator}: {e}")
+
                 success = (
                     result.get("status") == "success"
                     and result.get("accuracy_passed", False)
                     and proc.returncode == 0
+                    and not needs_fixup
                 )
 
                 if success:
+                    # Sort operator registrations and amend the commit if needed
+                    sort_and_amend_commit(worktree_path, operator, base_branch)
+
                     logger.info(f"[SUCCESS] {operator} (attempt {attempt+1}, {duration:.0f}s)")
                     summary.update_operator(
                         operator,
@@ -751,32 +1119,17 @@ def run(args):
                         end_time=datetime.now(timezone.utc).isoformat(),
                         cc_result=result,
                     )
-                elif attempt + 1 < max_retries:
-                    logger.warning(
-                        f"[RETRY] {operator} (attempt {attempt+1}/{max_retries}, "
-                        f"reason: {result.get('error_message', 'unknown')})"
-                    )
-                    summary.update_operator(
-                        operator,
-                        status="retrying",
-                        duration_seconds=round(duration),
-                        error_message=result.get("error_message"),
-                        cc_result=result,
-                    )
-                    queue.append((operator, attempt + 1))
                 else:
-                    logger.error(
-                        f"[FAILED] {operator} after {attempt+1} attempts: "
-                        f"{result.get('error_message', 'unknown')}"
-                    )
-                    summary.update_operator(
+                    schedule_retry_or_fail(
+                        summary,
+                        queue,
                         operator,
-                        status="failed",
-                        accuracy_passed=result.get("accuracy_passed", False),
-                        duration_seconds=round(duration),
-                        end_time=datetime.now(timezone.utc).isoformat(),
-                        error_message=result.get("error_message"),
-                        cc_result=result,
+                        attempt,
+                        max_retries,
+                        duration,
+                        result,
+                        validation_result=validation_result,
+                        needs_fixup=needs_fixup,
                     )
 
         if running:
@@ -826,6 +1179,8 @@ def main():
     parser.add_argument("--enflame", action="store_true", help="Enflame (Suiyuan) backend mode: generate operators in _enflame/<arch>/ops/")
     parser.add_argument("--resume", help="Path to previous summary.json; skip already-successful operators")
     parser.add_argument("--retry-failed", action="store_true", help="When used with --resume, also retry previously failed operators")
+    parser.add_argument("--skip-fetch", action="store_true", help="Skip auto-fetch of upstream remote before creating worktrees")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate workflow without launching Claude Code (for testing)")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO

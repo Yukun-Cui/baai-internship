@@ -33,19 +33,17 @@ src/flag_gems/
     └── backend/_nvidia/
         └── tune_configs.yaml  # autotuning 配置
 tests/
-├── test_unary_pointwise_ops.py   # 一元 pointwise 测试
-├── test_binary_pointwise_ops.py  # 二元 pointwise 测试
-├── test_reduction_ops.py         # reduction 测试
-├── test_norm_ops.py              # norm 测试
-├── test_blas_ops.py              # BLAS 测试
-├── test_special_ops.py           # 特殊算子测试
+├── test_<operator>.py            # 每个算子一个独立测试文件（如 test_relu.py）
 ├── accuracy_utils.py             # 共享工具：POINTWISE_SHAPES, FLOAT_DTYPES, gems_assert_close 等
+│                                 #   （通过 `from . import accuracy_utils as utils` 导入，带 utils. 前缀使用）
 └── conftest.py
 benchmark/
-├── test_unary_pointwise_perf.py  # 一元 pointwise 性能
-├── test_binary_pointwise_perf.py # 二元 pointwise 性能
-├── test_reduction_perf.py
+├── test_<operator>.py            # 每个算子一个独立 benchmark 文件（如 test_relu.py）
+├── base.py                       # UnaryPointwiseBenchmark 等基类
+├── consts.py                     # FLOAT_DTYPES 等常量
 └── ...
+conf/
+└── operators.yaml                # 算子目录：每个变体一条，需带 KernelGen 标签
 pytest.ini                        # 配置 pythonpath = src，自动导入 worktree 的代码
 ```
 
@@ -183,68 +181,112 @@ grep -E "@triton|def op_func|@pointwise_dynamic" src/flag_gems/ops/{{OPERATOR}}.
    ```
    aten op name 需要与 Step 1 中查到的 schema 名一致。
 
+3. **在 `conf/operators.yaml` 中为每个变体注册元数据条目（⚠️ 必须，否则校验不通过）：**
+
+   为你注册的**每一个 ATen 变体**（如 `{{OPERATOR}}`、`{{OPERATOR}}_`、`{{OPERATOR}}.out`）各加一条，
+   按 `id` 字母顺序插入。**`labels` 中必须包含 `KernelGen` 标签**（标记本工具生成的 Triton kernel），
+   否则完整性校验会失败并触发返工。参考同类算子（如 `abs`、`acosh`、`ceil`）的写法：
+
+   ```yaml
+   - id: {{OPERATOR}}
+     description: Triton kernel implementation for {{OPERATOR}}.
+     for:
+       - {{OPERATOR}}
+     labels:
+       - aten
+       - KernelGen        # ⚠️ 必须保留此标签
+
+   - id: {{OPERATOR}}_       # 仅当存在 inplace 变体时
+     description: The in-place version of `{{OPERATOR}}()`.
+     for:
+       - {{OPERATOR}}_
+     labels:
+       - aten
+       - KernelGen
+
+   - id: {{OPERATOR}}_out    # 仅当存在 out 变体时，注意 for 用 `.out` 后缀
+     description: A variant of {{OPERATOR}}() that writes the result into the out tensor.
+     for:
+       - {{OPERATOR}}.out
+     labels:
+       - aten
+       - KernelGen
+   ```
+
+   验证 YAML 语法：
+   ```bash
+   cd {{WORK_DIR}}
+   {{PYTHON_PATH}} -c "import yaml; yaml.safe_load(open('conf/operators.yaml'))"
+   ```
+
 ### Step 5: 编写 accuracy 测试
 
-**在 FlagGems 标准测试文件中添加测试用例**，不要写到 `/tmp` 或其他地方。
+**在独立的按算子命名的测试文件 `tests/test_{{OPERATOR}}.py` 中编写测试**（这是仓库当前约定，
+每个算子一个文件，如 `tests/test_relu.py`、`tests/test_abs.py`），不要写到共享类别文件、`/tmp` 或其他地方。
 
-根据算子类型，选择对应的测试文件：
-- 一元 pointwise → `tests/test_unary_pointwise_ops.py`
-- 二元 pointwise → `tests/test_binary_pointwise_ops.py`
-- reduction → `tests/test_reduction_ops.py`
-- norm → `tests/test_norm_ops.py`
-- 其他 → `tests/test_special_ops.py`
+**先阅读一个同类算子的现有测试文件**（如 `tests/test_relu.py`），了解 import 与工具函数的用法。
+注意工具函数通过 `from . import accuracy_utils as utils` 导入，使用时**带 `utils.` 前缀**
+（如 `utils.POINTWISE_SHAPES`、`utils.FLOAT_DTYPES`、`utils.to_reference`、`utils.gems_assert_close`）。
 
-**先阅读对应测试文件**，了解现有测试的模式和使用的工具函数（如 `POINTWISE_SHAPES`, `FLOAT_DTYPES`, `to_reference`, `gems_assert_close`, `gems_assert_equal` 等），然后在文件末尾追加新的测试函数。
+⚠️ **完整性校验要求**：`tests/test_{{OPERATOR}}.py` 中**每个 ATen 变体都必须有对应的 `@pytest.mark.<变体名>`**
+（如 `@pytest.mark.{{OPERATOR}}`、`@pytest.mark.{{OPERATOR}}_`），缺少会导致校验失败并触发返工。
 
-**一元 pointwise 测试模板**（参考 `test_accuracy_ceil` 和 `test_accuracy_ceil_`）：
+**一元 pointwise 测试模板**（参考 `tests/test_relu.py`）：
 
 ```python
+import pytest
+import torch
+
+import flag_gems
+
+from . import accuracy_utils as utils
+
+
 @pytest.mark.{{OPERATOR}}
-@pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_accuracy_{{OPERATOR}}(shape, dtype):
-    inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    ref_inp = to_reference(inp)
+@pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_{{OPERATOR}}(shape, dtype):
+    res_inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
+    ref_inp = utils.to_reference(res_inp)
 
     ref_out = torch.{{OPERATOR}}(ref_inp)
     with flag_gems.use_gems():
-        res_out = torch.{{OPERATOR}}(inp)
+        res_out = torch.{{OPERATOR}}(res_inp)
 
-    gems_assert_close(res_out, ref_out, dtype)
+    utils.gems_assert_close(res_out, ref_out, dtype)
 
 
-@pytest.mark.inplace
-@pytest.mark.{{OPERATOR}}_
-@pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_accuracy_{{OPERATOR}}_(shape, dtype):
-    inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    ref_inp = to_reference(inp.clone())
+@pytest.mark.{{OPERATOR}}_       # 仅当存在 inplace 变体时
+@pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_{{OPERATOR}}_(shape, dtype):
+    res_inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
+    ref_inp = utils.to_reference(res_inp.clone())
 
     ref_out = ref_inp.{{OPERATOR}}_()
     with flag_gems.use_gems():
-        res_out = inp.{{OPERATOR}}_()
+        res_out = res_inp.{{OPERATOR}}_()
 
-    gems_assert_close(res_out, ref_out, dtype)
+    utils.gems_assert_close(res_out, ref_out, dtype)
 ```
 
-**二元 pointwise 测试模板**（参考 `test_accuracy_add` 等）：
+**二元 pointwise 测试模板**（参考 `tests/test_add.py` 等）：
 
 ```python
 @pytest.mark.{{OPERATOR}}
-@pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_accuracy_{{OPERATOR}}(shape, dtype):
+@pytest.mark.parametrize("shape", utils.POINTWISE_SHAPES)
+@pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
+def test_{{OPERATOR}}(shape, dtype):
     inp1 = torch.randn(shape, dtype=dtype, device=flag_gems.device)
     inp2 = torch.randn(shape, dtype=dtype, device=flag_gems.device)
-    ref_inp1 = to_reference(inp1)
-    ref_inp2 = to_reference(inp2)
+    ref_inp1 = utils.to_reference(inp1)
+    ref_inp2 = utils.to_reference(inp2)
 
     ref_out = torch.{{OPERATOR}}(ref_inp1, ref_inp2)
     with flag_gems.use_gems():
         res_out = torch.{{OPERATOR}}(inp1, inp2)
 
-    gems_assert_close(res_out, ref_out, dtype)
+    utils.gems_assert_close(res_out, ref_out, dtype)
 ```
 
 <!-- [v2 新增] 测试深度指导 - 基于测试组反馈 2026-04-14 -->
@@ -253,8 +295,8 @@ def test_accuracy_{{OPERATOR}}(shape, dtype):
 根据算子的计算复杂度，选择合适的测试深度。不要对所有算子都套用最简单的模板，也不要对简单算子过度测试。
 
 **简单算子**（纯逐元素、无 reduce、无特殊参数）如 abs, ceil, neg, relu, bitwise_not：
-- 使用标准 `POINTWISE_SHAPES` + `FLOAT_DTYPES`（或 `INT_DTYPES`）即可
-- 使用 `gems_assert_close`（或 `gems_assert_equal`）统一容差
+- 使用标准 `utils.POINTWISE_SHAPES` + `utils.FLOAT_DTYPES`（或 `utils.INT_DTYPES`）即可
+- 使用 `utils.gems_assert_close`（或 `utils.gems_assert_equal`）统一容差
 - 1 个测试函数 + 1 个 inplace 测试函数（如果有 inplace 版本）
 
 **中等算子**（涉及 reduce、广播、dim 参数、或多输入）如 sum, softmax, mul, pow, index_put：
@@ -262,7 +304,7 @@ def test_accuracy_{{OPERATOR}}(shape, dtype):
 - 如果算子有 `dim` 参数，**测试不同 dim 值**（dim=0, dim=1, dim=-1），不要只测默认值
 - 对 reduction 算子，额外测试**极端输入**：全零 tensor、含 `inf`/`-inf` 的 tensor
 - 按 dtype 使用**不同容差**：float32 用严格容差 `(rtol=1e-5, atol=1e-5)`，float16 用 `(rtol=1e-3, atol=1e-3)`，bfloat16 用 `(rtol=2e-2, atol=2e-2)`
-- 如果算子支持整数类型（如 mul, pow），额外测试 `INT_DTYPES`
+- 如果算子支持整数类型（如 mul, pow），额外测试 `utils.INT_DTYPES`
 
 **复杂算子**（涉及多步计算、数值稳定性、或模型推理场景）如 layernorm, cross_entropy, nll_loss, multi_margin_loss：
 - 使用**模型推理场景 shape**（如 attention shape `(batch, heads, seq, seq)`、embedding shape `(batch, seq, hidden_dim)`）
@@ -272,7 +314,7 @@ def test_accuracy_{{OPERATOR}}(shape, dtype):
 - 可以组织为多个 TestClass，每个 class 测试一个场景
 <!-- [v2 新增结束] -->
 
-**注意**：上面只是模板，你需要根据算子的实际接口和语义调整（输入数据生成方式、断言方式等）。对于精确运算（如 floor, round），应使用 `gems_assert_equal` 而非 `gems_assert_close`。
+**注意**：上面只是模板，你需要根据算子的实际接口和语义调整（输入数据生成方式、断言方式等）。对于精确运算（如 floor, round），应使用 `utils.gems_assert_equal` 而非 `utils.gems_assert_close`。
 
 ### Step 6: 运行 accuracy 测试
 
@@ -282,16 +324,12 @@ def test_accuracy_{{OPERATOR}}(shape, dtype):
 
 ```bash
 cd {{WORK_DIR}}
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest tests/<test_file>.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG 2>&1
+CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest tests/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG 2>&1
 ```
 
-例如：
+如果算子有多个变体（inplace / out），用 `-m` 的 or 表达式一并运行：
 ```bash
-# 一元 pointwise
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest tests/test_unary_pointwise_ops.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
-
-# 二元 pointwise
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest tests/test_binary_pointwise_ops.py -m {{OPERATOR}} -vs --log-cli-level=DEBUG
+CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest tests/test_{{OPERATOR}}.py -m "{{OPERATOR}} or {{OPERATOR}}_" -vs --log-cli-level=DEBUG
 ```
 
 **验证算子被调用**：在测试输出中检查是否出现了类似 `GEMS {{OPERATOR}}` 的 DEBUG 日志。如果没有出现，说明你的算子没有被正确注册或调用，需要检查 Step 4 的注册步骤。
@@ -308,44 +346,48 @@ CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -c "import sys; sys.path.insert(
 3. 修复 `src/flag_gems/ops/{{OPERATOR}}.py` 或测试代码
 4. 重新运行测试，直到所有测试通过
 
-### Step 6.5: 提交代码
-
-**当 accuracy 测试全部通过后**，立即将所有改动提交到当前 worktree 的分支：
-
-```bash
-cd {{WORK_DIR}}
-git add -A
-git commit --author="taooo <gumptao2997@gmail.com>" -m "Add {{OPERATOR}} operator implementation, tests and benchmark"
-```
-
-**必须在运行 benchmark 之前提交**，确保代码变更不会丢失。
-
 ### Step 7: 编写 benchmark 并运行
 
-**在 FlagGems 标准 benchmark 文件中添加 benchmark 条目**。
+**在独立的按算子命名的 benchmark 文件 `benchmark/test_{{OPERATOR}}.py` 中编写 benchmark**（仓库当前约定，
+每个算子一个文件，如 `benchmark/test_relu.py`），不要写到共享 perf 文件。
 
-根据算子类型，选择对应的 benchmark 文件：
-- 一元 pointwise → `benchmark/test_unary_pointwise_perf.py`
-- 二元 pointwise → `benchmark/test_binary_pointwise_perf.py`
-- reduction → `benchmark/test_reduction_perf.py`
-- 其他 → `benchmark/test_special_perf.py`
+**先阅读一个同类算子的现有 benchmark 文件**（如 `benchmark/test_relu.py`），了解 `base` 与 `consts` 的用法。
+工具通过 `from . import base, consts` 导入，一元 pointwise 用 `base.UnaryPointwiseBenchmark`。
 
-**先阅读对应 benchmark 文件**，了解 `forward_operations` 列表的格式，然后将新算子追加到合适位置。
+⚠️ **完整性校验要求**：`benchmark/test_{{OPERATOR}}.py` 中**每个 ATen 变体都必须有对应的 `@pytest.mark.<变体名>`**，
+缺少会导致校验失败并触发返工。
 
-**一元 pointwise benchmark 模板**（添加到 `forward_operations` 列表中）：
+**一元 pointwise benchmark 模板**（参考 `benchmark/test_relu.py`）：
 ```python
-("{{OPERATOR}}", torch.{{OPERATOR}}, FLOAT_DTYPES),
-```
+import pytest
+import torch
 
-**二元 pointwise benchmark 模板**（添加到 `forward_operations` 列表中）：
-```python
-("{{OPERATOR}}", torch.{{OPERATOR}}, FLOAT_DTYPES),
+from . import base, consts
+
+
+@pytest.mark.{{OPERATOR}}
+def test_{{OPERATOR}}():
+    bench = base.UnaryPointwiseBenchmark(
+        op_name="{{OPERATOR}}", torch_op=torch.{{OPERATOR}}, dtypes=consts.FLOAT_DTYPES
+    )
+    bench.run()
+
+
+@pytest.mark.{{OPERATOR}}_       # 仅当存在 inplace 变体时
+def test_{{OPERATOR}}_inplace():
+    bench = base.UnaryPointwiseBenchmark(
+        op_name="{{OPERATOR}}_",
+        torch_op=torch.{{OPERATOR}}_,
+        dtypes=consts.FLOAT_DTYPES,
+        is_inplace=True,
+    )
+    bench.run()
 ```
 
 运行 benchmark（同样必须在工作目录下）：
 ```bash
 cd {{WORK_DIR}}
-CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest benchmark/<benchmark_file>.py -m {{OPERATOR}} -vs 2>&1
+CUDA_VISIBLE_DEVICES={{GPU_ID}} {{PYTHON_PATH}} -m pytest benchmark/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs 2>&1
 ```
 
 **解析 benchmark 输出**：benchmark 输出格式为：
@@ -372,6 +414,23 @@ SUCCESS    ...
   4. 重新运行 benchmark 验证优化效果
   5. 如果优化后仍未达到 0.8，但比初始版本有提升，可以接受当前最佳结果
 
+### Step 7.5: 提交代码
+
+**当 accuracy 测试通过、benchmark 也已写好并运行后**，将所有改动（实现、测试、benchmark、
+`operators.yaml` 及两个 `__init__.py` 注册）一次性提交到当前 worktree 的分支：
+
+```bash
+cd {{WORK_DIR}}
+git add -A
+git commit --author="taooo <gumptao2997@gmail.com>" -m "Add {{OPERATOR}} operator implementation, tests and benchmark"
+```
+
+提交前请确认以下文件都已包含在内（缺失会导致完整性校验失败）：
+- `src/flag_gems/ops/{{OPERATOR}}.py`（实现）
+- `src/flag_gems/ops/__init__.py`、`src/flag_gems/__init__.py`（注册）
+- `conf/operators.yaml`（每个变体一条，含 `KernelGen` 标签）
+- `tests/test_{{OPERATOR}}.py`、`benchmark/test_{{OPERATOR}}.py`（每个变体都有 `@pytest.mark`）
+
 ### Step 8: 输出结果
 
 **【必须】** 在所有步骤完成后，你**必须**输出以下 JSON 格式的最终结果。用 ````json` 和 ```` ` 代码块包裹，这是解析你输出的唯一方式，不输出 JSON 将导致结果丢失：
@@ -382,24 +441,25 @@ SUCCESS    ...
   "status": "success 或 failed",
   "accuracy_passed": true/false,
   "files_created": [
-    "src/flag_gems/ops/{{OPERATOR}}.py"
+    "src/flag_gems/ops/{{OPERATOR}}.py",
+    "tests/test_{{OPERATOR}}.py",
+    "benchmark/test_{{OPERATOR}}.py"
   ],
   "files_modified": [
     "src/flag_gems/ops/__init__.py",
     "src/flag_gems/__init__.py",
-    "tests/test_xxx_ops.py",
-    "benchmark/test_xxx_perf.py"
+    "conf/operators.yaml"
   ],
-  "aten_ops_registered": ["aten_op_name1", "aten_op_name2"],
+  "aten_ops_registered": ["{{OPERATOR}}", "{{OPERATOR}}_", "{{OPERATOR}}.out"],
   "implementation_mode": "pointwise_dynamic 或 manual_kernel 或 autograd_function",
   "test_results": {
     "total": 12,
     "passed": 12,
     "failed": 0,
-    "test_command": "python -m pytest tests/test_xxx_ops.py -m {{OPERATOR}} -vs"
+    "test_command": "python -m pytest tests/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs"
   },
   "benchmark_results": {
-    "benchmark_command": "python -m pytest benchmark/test_xxx_perf.py -m {{OPERATOR}} -vs",
+    "benchmark_command": "python -m pytest benchmark/test_{{OPERATOR}}.py -m {{OPERATOR}} -vs",
     "data": [
       {
         "dtype": "torch.float16",
@@ -416,6 +476,10 @@ SUCCESS    ...
 ```
 
 **注意**：`benchmark_results.data` 数组中应包含 benchmark 输出中**每一行 SUCCESS** 的数据。如果 benchmark 运行失败或没有输出，`data` 可以为空数组 `[]`。
+
+**⚠️ `aten_ops_registered` 必须准确**：只列出你**实际注册**的 ATen 变体（如仅有 base 就只写 `["{{OPERATOR}}"]`，
+不要写出不存在的变体）。完整性校验会用这个字段核对 `operators.yaml` 与 `tests/`、`benchmark/` 中的 `@pytest.mark`，
+字段与实际不符会触发不必要的返工。
 
 ## 重要约束
 
