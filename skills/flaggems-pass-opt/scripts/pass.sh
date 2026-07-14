@@ -54,9 +54,18 @@ cmd_gpu() {
 # ----------------------------------------------------------------------------
 cmd_reinstall() {
     cd "${BASE_DIR}/FlagTree"
+    git reset --hard HEAD
     git pull
+    TARGET_FILE="python/src/ir.cc"
+    sed -i 's/\/\*printAfterOnlyOnChange=\*\/false,/\/\*printAfterOnlyOnChange=\*\/true,/g' "$TARGET_FILE"
+    sed -i 's/\/\*printAfterOnlyOnFailure\*\/ true,/\/\*printAfterOnlyOnFailure\*\/ false,/g' "$TARGET_FILE"
+    git --no-pager diff
+
     pip uninstall -y flagtree || true
-    cd python
+    apt update
+    apt install zlib1g zlib1g-dev libxml2 libxml2-dev nlohmann-json3-dev
+    pip install -r python/requirements.txt
+    # rm -rf /root/.triton
     pip install . --no-build-isolation -v
 }
 
