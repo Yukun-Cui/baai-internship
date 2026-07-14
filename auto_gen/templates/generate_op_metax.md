@@ -321,8 +321,12 @@ SUCCESS    ...
 ```bash
 cd {{WORK_DIR}}
 git add -A
-git commit --author="taooo <gumptao2997@gmail.com>" -m "Add {{OPERATOR}} metax specialized operator implementation"
+git commit -m "Add {{OPERATOR}} metax specialized operator implementation"
 ```
+
+**【禁止 AI 署名】** commit message **只能**包含上面 `-m` 指定的内容。**严禁**添加任何形式的
+AI 署名或生成标记，包括但不限于 `Co-Authored-By: Claude ...`、`Generated with Claude Code`、
+`🤖` 等 trailer。提交后请用 `git log -1 --format=%B` 复查，确认 message 中不含任何此类内容。
 
 ### Step 8: 输出结果
 

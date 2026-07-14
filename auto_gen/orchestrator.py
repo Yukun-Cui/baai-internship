@@ -141,6 +141,52 @@ def ensure_pre_commit(python_path: str, flaggems_dir: str, dry_run: bool = False
             )
 
 
+def strip_ai_signature(worktree_path: str, operator: str):
+    """Rewrite the HEAD commit message to remove any AI attribution trailers.
+
+    Claude Code appends a ``Co-Authored-By: Claude ...`` trailer (and sometimes a
+    ``Generated with Claude Code`` line) to commits by default. The repo forbids
+    any AI signature, so prompt-level instructions alone are unreliable — we strip
+    it here as a hard guarantee, regardless of what the model produced.
+    """
+    try:
+        msg_result = subprocess.run(
+            ["git", "log", "-1", "--format=%B"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+        )
+        if msg_result.returncode != 0:
+            return
+        original = msg_result.stdout
+        cleaned_lines = []
+        for line in original.splitlines():
+            low = line.strip().lower()
+            if low.startswith("co-authored-by:") and (
+                "claude" in low or "anthropic" in low or "noreply@anthropic.com" in low
+            ):
+                continue
+            if low.startswith("generated with") and "claude" in low:
+                continue
+            if "🤖" in line and "claude" in low:
+                continue
+            cleaned_lines.append(line)
+        # Drop trailing blank lines left behind after removing trailers
+        while cleaned_lines and not cleaned_lines[-1].strip():
+            cleaned_lines.pop()
+        cleaned = "\n".join(cleaned_lines) + "\n"
+
+        if cleaned != original:
+            subprocess.run(
+                ["git", "commit", "--amend", "--no-edit", "-m", cleaned],
+                cwd=worktree_path,
+                capture_output=True,
+            )
+            logger.info(f"[SIGN] Stripped AI attribution from commit for {operator}")
+    except Exception as e:
+        logger.warning(f"[SIGN] Error stripping AI signature: {e}")
+
+
 def sort_and_amend_commit(worktree_path: str, operator: str, base_branch: str = "master"):
     """Sort operator registrations and amend the commit if changes were needed.
 
@@ -270,9 +316,15 @@ def render_template(template_path: str, variables: dict) -> str:
 # Worktree management
 # ---------------------------------------------------------------------------
 
-def create_worktree(flaggems_dir: str, operator: str) -> tuple[str, str]:
-    """Create a git worktree for an operator. Returns (worktree_path, branch_name)."""
-    branch_name = f"auto-gen/{operator}"
+def create_worktree(
+    flaggems_dir: str, operator: str, branch_prefix: str = "pr/"
+) -> tuple[str, str]:
+    """Create a git worktree for an operator. Returns (worktree_path, branch_name).
+
+    Branch names follow the repo's PR convention (e.g. ``pr/narrow``). The prefix
+    is configurable via ``branch_prefix`` in config.yaml.
+    """
+    branch_name = f"{branch_prefix}{operator}"
     worktree_path = os.path.join(flaggems_dir, ".worktrees", f"gen-{operator}")
 
     # Always clean up: remove worktree, delete leftover directory, prune git records
@@ -853,6 +905,7 @@ def run(args):
     poll_interval = config.get("poll_interval", 10)
     python_path = config.get("python_path", sys.executable)
     base_branch = config.get("base_branch", "master")
+    branch_prefix = config.get("branch_prefix", "pr/")
     dry_run = getattr(args, "dry_run", False)
 
     os.makedirs(log_dir, exist_ok=True)
@@ -1007,9 +1060,13 @@ def run(args):
                         logger.info(f"[FIXUP] Reusing existing worktree for {operator}: {worktree_path}")
                     else:
                         logger.warning(f"[FIXUP] Existing worktree not found for {operator}, creating new one")
-                        worktree_path, branch = create_worktree(flaggems_dir, operator)
+                        worktree_path, branch = create_worktree(
+                            flaggems_dir, operator, branch_prefix
+                        )
                 else:
-                    worktree_path, branch = create_worktree(flaggems_dir, operator)
+                    worktree_path, branch = create_worktree(
+                        flaggems_dir, operator, branch_prefix
+                    )
 
                 # For fixup attempts, append the missing items to the prompt
                 fixup_prompt = None
@@ -1109,6 +1166,8 @@ def run(args):
                 if success:
                     # Sort operator registrations and amend the commit if needed
                     sort_and_amend_commit(worktree_path, operator, base_branch)
+                    # Strip any AI attribution trailer Claude Code may have added
+                    strip_ai_signature(worktree_path, operator)
 
                     logger.info(f"[SUCCESS] {operator} (attempt {attempt+1}, {duration:.0f}s)")
                     summary.update_operator(
