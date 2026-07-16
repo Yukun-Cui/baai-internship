@@ -1,0 +1,6 @@
+# MetaX (沐曦) 特化算子列表
+# 每行一个算子；支持 'sigmoid'、'aten::sigmoid'、'aten::sigmoid.Tensor'（自动去除 aten:: 前缀与重载后缀）
+# 参考已有 _metax 特化算子：sigmoid, addmm, amax, bmm, mm, arange, groupnorm 等
+#
+# 生成：python3 extract_metax_failed_ops.py -o ops_list_metax.txt
+# 用法：python3 orchestrator.py --metax

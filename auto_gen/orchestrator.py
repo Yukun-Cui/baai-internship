@@ -499,7 +499,7 @@ def _kill_cc_process(proc: subprocess.Popen):
     proc._stderr_file.close()
 
 
-def check_worktree_has_changes(worktree_path: str, operator: str, metax: bool = False, iluvatar: bool = False, enflame: bool = False, arch: str = "gcu300") -> bool:
+def check_worktree_has_changes(worktree_path: str, operator: str, metax: bool = False, iluvatar: bool = False, enflame: bool = False, mthreads: bool = False, arch: str = "gcu300") -> bool:
     """Check if the worktree has code changes (operator file created)."""
     if metax:
         op_file = os.path.join(worktree_path, "src", "flag_gems", "runtime", "backend", "_metax", "ops", f"{operator}.py")
@@ -507,6 +507,8 @@ def check_worktree_has_changes(worktree_path: str, operator: str, metax: bool = 
         op_file = os.path.join(worktree_path, "src", "flag_gems", "runtime", "backend", "_iluvatar", "ops", f"{operator}.py")
     elif enflame:
         op_file = os.path.join(worktree_path, "src", "flag_gems", "runtime", "backend", "_enflame", arch, "ops", f"{operator}.py")
+    elif mthreads:
+        op_file = os.path.join(worktree_path, "src", "flag_gems", "runtime", "backend", "_mthreads", "ops", f"{operator}.py")
     else:
         op_file = os.path.join(worktree_path, "src", "flag_gems", "ops", f"{operator}.py")
     if os.path.exists(op_file):
@@ -521,7 +523,7 @@ def check_worktree_has_changes(worktree_path: str, operator: str, metax: bool = 
     return bool(result.stdout.strip())
 
 
-def parse_cc_result(proc: subprocess.Popen, operator: str, worktree_path: str = None, metax: bool = False, iluvatar: bool = False, enflame: bool = False, arch: str = "gcu300") -> dict:
+def parse_cc_result(proc: subprocess.Popen, operator: str, worktree_path: str = None, metax: bool = False, iluvatar: bool = False, enflame: bool = False, mthreads: bool = False, arch: str = "gcu300") -> dict:
     """Parse stream-json output from a CC process.
 
     The .jsonl file contains one JSON object per line. We look for the last
@@ -563,7 +565,7 @@ def parse_cc_result(proc: subprocess.Popen, operator: str, worktree_path: str = 
                 return json.loads(json_match.group(0))
 
         # Fallback: if CC exited normally and worktree has changes, treat as success
-        if proc.returncode == 0 and worktree_path and check_worktree_has_changes(worktree_path, operator, metax=metax, iluvatar=iluvatar, enflame=enflame, arch=arch):
+        if proc.returncode == 0 and worktree_path and check_worktree_has_changes(worktree_path, operator, metax=metax, iluvatar=iluvatar, enflame=enflame, mthreads=mthreads, arch=arch):
             logger.info(f"CC output not parseable, but worktree has changes for {operator}")
             return {
                 "operator": operator,
@@ -884,6 +886,7 @@ def run(args):
     is_metax = getattr(args, "metax", False)
     is_iluvatar = getattr(args, "iluvatar", False)
     is_enflame = getattr(args, "enflame", False)
+    is_mthreads = getattr(args, "mthreads", False)
     enflame_arch = config.get("enflame", {}).get("arch", "gcu300")
 
     flaggems_dir = config.get("flaggems_dir", os.path.dirname(os.path.dirname(script_dir)))
@@ -893,6 +896,8 @@ def run(args):
         template_name = config.get("iluvatar", {}).get("template", "templates/generate_op_iluvatar.md")
     elif is_enflame:
         template_name = config.get("enflame", {}).get("template", "templates/generate_op_enflame.md")
+    elif is_mthreads:
+        template_name = config.get("mthreads", {}).get("template", "templates/generate_op_mthreads.md")
     else:
         template_name = config.get("template", "templates/generate_op.md")
     template_path = os.path.join(script_dir, template_name)
@@ -920,6 +925,8 @@ def run(args):
         ops_list_name = config.get("iluvatar", {}).get("ops_list", "ops_list_iluvatar.txt")
     elif is_enflame and not args.ops_list:
         ops_list_name = config.get("enflame", {}).get("ops_list", "ops_list_enflame.txt")
+    elif is_mthreads and not args.ops_list:
+        ops_list_name = config.get("mthreads", {}).get("ops_list", "ops_list_mthreads.txt")
     else:
         ops_list_name = "ops_list.txt"
     ops_list_path = args.ops_list or os.path.join(script_dir, ops_list_name)
@@ -1127,13 +1134,13 @@ def run(args):
                 del running[operator]
 
                 # Parse result and generate timeline
-                result = parse_cc_result(proc, operator, worktree_path, metax=is_metax, iluvatar=is_iluvatar, enflame=is_enflame, arch=enflame_arch)
+                result = parse_cc_result(proc, operator, worktree_path, metax=is_metax, iluvatar=is_iluvatar, enflame=is_enflame, mthreads=is_mthreads, arch=enflame_arch)
                 generate_timeline(proc._stdout_path, operator)
 
                 # Validate operator completeness (operators.yaml, test/benchmark marks).
                 # Only for the default CUDA backend — vendor backends use a different
                 # file layout that this validator doesn't understand.
-                is_vendor_mode = is_metax or is_iluvatar or is_enflame
+                is_vendor_mode = is_metax or is_iluvatar or is_enflame or is_mthreads
                 validation_result = None
                 needs_fixup = False
                 if (
@@ -1236,6 +1243,7 @@ def main():
     parser.add_argument("--metax", action="store_true", help="Metax (Muxi) backend mode: generate operators in _metax/ops/")
     parser.add_argument("--iluvatar", action="store_true", help="Iluvatar (Tianshu) backend mode: generate operators in _iluvatar/ops/")
     parser.add_argument("--enflame", action="store_true", help="Enflame (Suiyuan) backend mode: generate operators in _enflame/<arch>/ops/")
+    parser.add_argument("--mthreads", action="store_true", help="Moore Threads (Moerxiancheng) backend mode: generate operators in _mthreads/ops/")
     parser.add_argument("--resume", help="Path to previous summary.json; skip already-successful operators")
     parser.add_argument("--retry-failed", action="store_true", help="When used with --resume, also retry previously failed operators")
     parser.add_argument("--skip-fetch", action="store_true", help="Skip auto-fetch of upstream remote before creating worktrees")

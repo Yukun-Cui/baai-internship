@@ -24,6 +24,9 @@ max_retries: 3
 metax:
   ops_list: ops_list_metax.txt
   template: templates/generate_op_metax.md
+mthreads:
+  ops_list: ops_list_mthreads.txt
+  template: templates/generate_op_mthreads.md
 poll_interval: 10
 python_path: /usr/bin/python3
 results_dir: results

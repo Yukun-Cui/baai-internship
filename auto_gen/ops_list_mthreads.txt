@@ -1,0 +1,5 @@
+# Moore Threads (摩尔线程) 特化算子列表
+# 每行一个算子；支持 'log'、'aten::log'、'aten::log.Tensor'（自动去除 aten:: 前缀与重载后缀）
+# 参考已有 _mthreads 特化算子：log, celu, sort, mode, batch_norm 等
+#
+# 用法：python3 orchestrator.py --mthreads

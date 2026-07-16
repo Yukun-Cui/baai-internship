@@ -1,0 +1,6 @@
+# Iluvatar (天数) 特化算子列表
+# 每行一个算子；支持 'add'、'aten::add'、'aten::add.Tensor'（自动去除 aten:: 前缀与重载后缀）
+# 参考已有 _iluvatar 特化算子
+#
+# 生成：python3 extract_iluvatar_failed_ops.py -o ops_list_iluvatar.txt
+# 用法：python3 orchestrator.py --iluvatar

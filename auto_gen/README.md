@@ -1,6 +1,6 @@
 # Auto-Gen - FlagGems 算子自动生成工具
 
-基于 Claude Code 的 FlagGems 算子自动生成编排系统，支持多 GPU 并行处理和多硬件后端（CUDA、MetaX、Iluvatar、Enflame）。
+基于 Claude Code 的 FlagGems 算子自动生成编排系统，支持多 GPU 并行处理和多硬件后端（CUDA、MetaX、Iluvatar、Enflame、Moore Threads）。
 
 ## 功能特性
 
@@ -63,6 +63,9 @@ python3 orchestrator.py --iluvatar
 # 使用 Enflame（燧原）后端
 python3 orchestrator.py --enflame
 
+# 使用 Moore Threads（摩尔线程）后端
+python3 orchestrator.py --mthreads
+
 # 中断后恢复：跳过已成功的算子，只跑剩余的（传上次 summary.json）
 python3 orchestrator.py --resume results/summary_<timestamp>.json ops_list.txt
 
@@ -94,17 +97,22 @@ auto_gen/
 ├── config.yaml                  # 配置文件
 ├── .env                         # API 密钥配置（不提交）
 ├── ops_list.txt                 # 算子列表（CUDA 默认）
+├── ops_list_metax.txt           # 算子列表（MetaX 后端）
+├── ops_list_iluvatar.txt        # 算子列表（Iluvatar 后端）
 ├── ops_list_enflame.txt         # 算子列表（Enflame 后端）
+├── ops_list_mthreads.txt        # 算子列表（Moore Threads 后端）
 ├── test_single_op.sh            # 单算子测试脚本
 ├── templates/                   # Prompt 模板
 │   ├── generate_op.md           # CUDA 后端模板
 │   ├── generate_op_metax.md     # MetaX 后端模板
 │   ├── generate_op_iluvatar.md  # Iluvatar 后端模板
 │   ├── generate_op_iluvatar_optimize.md  # Iluvatar 优化模板
-│   └── generate_op_enflame.md   # Enflame（燧原）后端模板
+│   ├── generate_op_enflame.md   # Enflame（燧原）后端模板
+│   └── generate_op_mthreads.md  # Moore Threads（摩尔线程）后端模板
 ├── extract_metax_failed_ops.py  # 提取 MetaX 失败算子
 ├── extract_iluvatar_failed_ops.py  # 提取 Iluvatar 失败算子
 ├── extract_enflame_failed_ops.py   # 提取 Enflame（燧原）失败算子
+├── extract_mthreads_failed_ops.py  # 提取 Moore Threads（摩尔线程）失败算子
 ├── fix_worktree_import.py       # 修复 worktree 导入问题
 └── results/                     # 运行结果（自动生成）
     ├── logs_<timestamp>/        # 每次运行的算子执行日志与时间线
@@ -155,12 +163,23 @@ enflame:
   template: templates/generate_op_enflame.md
   ops_list: ops_list_enflame.txt
   arch: gcu300          # 目标 GCU 架构，可选 gcu300 / gcu400
+
+# Moore Threads（摩尔线程）后端配置
+mthreads:
+  template: templates/generate_op_mthreads.md
+  ops_list: ops_list_mthreads.txt
 ```
 
 > ⚠️ **燧原后端说明**：与沐曦/天数不同，燧原特化算子在 FlagGems 中**按架构分目录**存放于
 > `src/flag_gems/runtime/backend/_enflame/<arch>/ops/`（如 `gcu300/ops/`、`gcu400/ops/`）。
 > `enflame.arch` 决定生成到哪个架构目录，默认 `gcu300`。燧原硬件不支持 fp64/int64，
 > 模板已内置相应约束（int64→int32 转换、`GEMS_ENFLAME` logger 前缀、本地 `..utils.pointwise_dynamic` 导入）。
+
+> ⚠️ **摩尔线程后端说明**：摩尔线程特化算子存放于 `src/flag_gems/runtime/backend/_mthreads/ops/`，
+> 布局与沐曦/天数一致（不按架构分目录）。设备类型为 **`musa`**（非 `cuda`），torch 扩展为 `torch_musa`，
+> 通过 `runtime.replace_customized_ops()` 自动替换通用实现。硬件不支持 fp64（`fp64_enabled=False`）。
+> 模板已内置相应约束：算子内 `device.type == "musa"` 判定、不支持的 dtype 回退到通用实现、
+> `GEMS_MTHREADS` logger 前缀、用 `tl_extra_shim` 而非 `tl.extra.cuda.libdevice` 做跨后端数学函数。
 
 ### .env API 配置
 
@@ -277,6 +296,15 @@ python3 extract_iluvatar_failed_ops.py --input iluvatar_results.xlsx --output op
 python3 extract_enflame_failed_ops.py --input results.xlsx --output ops_list_enflame.txt
 # 若自动探测列失败，可用 --result-col 手动指定（0 基列索引）
 python3 extract_enflame_failed_ops.py --input results.xlsx --result-col 4
+```
+
+### extract_mthreads_failed_ops.py
+从 Excel 文件中提取 Moore Threads（摩尔线程）失败算子列表。自动探测表头中的"摩尔线程"结果列（也匹配"摩尔"/"mthreads"/"musa"）。
+
+```bash
+python3 extract_mthreads_failed_ops.py --input results.xlsx --output ops_list_mthreads.txt
+# 若自动探测列失败，可用 --result-col 手动指定（0 基列索引）
+python3 extract_mthreads_failed_ops.py --input results.xlsx --result-col 5
 ```
 
 ### fix_worktree_import.py
