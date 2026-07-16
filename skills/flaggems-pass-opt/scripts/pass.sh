@@ -61,7 +61,6 @@ cmd_reinstall() {
     sed -i 's/\/\*printAfterOnlyOnFailure\*\/ true,/\/\*printAfterOnlyOnFailure\*\/ false,/g' "$TARGET_FILE"
     git --no-pager diff
 
-    pip uninstall -y flagtree || true
     apt update
     apt install zlib1g zlib1g-dev libxml2 libxml2-dev nlohmann-json3-dev
     pip install -r python/requirements.txt

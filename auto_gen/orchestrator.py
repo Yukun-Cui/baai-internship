@@ -981,7 +981,7 @@ def run(args):
             if "does not resolve" in fetch_result.stderr or "Unknown remote" in fetch_result.stderr:
                 logger.warning(
                     "upstream remote not found. Add it with:\n"
-                    "  git remote add upstream https://github.com/FlagOpen/FlagGems.git\n"
+                    "  git remote add upstream https://github.com/flagos-ai/FlagGems-Experimental.git\n"
                     "Continuing with local base branch (run with --skip-fetch to silence)."
                 )
             else:

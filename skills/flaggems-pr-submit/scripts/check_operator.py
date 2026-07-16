@@ -890,8 +890,12 @@ class OperatorChecker:
     def check_git_commit_message(self):
         section("Git Commit 检查")
         try:
+            # Two-dot range: only commits reachable from HEAD but not upstream/master
+            # (i.e. this branch's own commits). Three-dot symmetric difference with -1
+            # would sort by date and could pick a newer upstream commit whose message
+            # legitimately carries human Co-authored-by trailers, causing a false positive.
             result = subprocess.run(
-                ["git", "log", "upstream/master...HEAD", "--format=%B", "-1"],
+                ["git", "log", "upstream/master..HEAD", "--format=%B"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,

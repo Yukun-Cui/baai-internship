@@ -32,7 +32,7 @@ from gen_pr_description import compute_operator_means, query_domestic_gpu
 from submit_operator import format_pr_body, get_op_id
 
 
-DEFAULT_REPO = "flagos-ai/FlagGems"
+DEFAULT_REPO = "flagos-ai/FlagGems-Experimental"
 DEFAULT_AUTHOR = "Yukun-Cui"
 DEFAULT_REPO_DIR = "/root/FlagGems"
 DEFAULT_AUDIT_DIR = "/root/baai-internship/ci_performance_update/reports"

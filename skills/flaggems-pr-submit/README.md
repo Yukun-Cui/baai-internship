@@ -1,6 +1,6 @@
 # flaggems-pr-submit
 
-FlagGems 算子 PR 提交 skill，用于把 KernelGen/worktree 生成的单个算子整理成可提交到 `flagos-ai/FlagGems` 的 PR。它把规范名查询、代码提取、命名统一、提交前检查、本地测试、benchmark、PR 描述生成、push、PR 创建和规范名表回填串成一条固定流程。
+FlagGems 算子 PR 提交 skill，用于把 KernelGen/worktree 生成的单个算子整理成可提交到 `flagos-ai/FlagGems-Experimental` 的 PR。它把规范名查询、代码提取、命名统一、提交前检查、本地测试、benchmark、PR 描述生成、push、PR 创建和规范名表回填串成一条固定流程。
 
 ## 目录结构
 

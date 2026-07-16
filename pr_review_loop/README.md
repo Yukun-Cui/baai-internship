@@ -215,7 +215,7 @@ python3 run_once.py --fetch --days 30 --limit-prs 1 --dry-run
 
 ```bash
 # 1) 抓取 review 报告（fetch 脚本按仓库/作者/时间过滤，不支持按单个 PR 号过滤）
-python3 github_reviews/fetch_reviews.py --repo flagos-ai/FlagGems --open --unreplied \
+python3 github_reviews/fetch_reviews.py --repo flagos-ai/FlagGems-Experimental --open --unreplied \
   --output records/latest_reviews.md
 # 2) 用生成的报告跑 loop（可在报告里删掉不想处理的 PR 段落）
 python3 run_once.py --report records/latest_reviews.md --dry-run

@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-PR_URL_RE = re.compile(r"https://github\.com/flagos-ai/FlagGems/pull/\d+")
+PR_URL_RE = re.compile(r"https://github\.com/flagos-ai/FlagGems-Experimental/pull/\d+")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 LOCAL_NO_PROXY_HOSTS = ("localhost", "127.0.0.1", "::1")
 MANUAL_PR_RE = re.compile(r"\bgh\s+pr\s+(?:create|edit|merge|ready|reopen|close)\b")

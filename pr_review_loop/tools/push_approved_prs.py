@@ -12,7 +12,7 @@ from pathlib import Path
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Push approved PR worktrees.")
     parser.add_argument("--run-dir", required=True)
-    parser.add_argument("--repo", default="flagos-ai/FlagGems")
+    parser.add_argument("--repo", default="flagos-ai/FlagGems-Experimental")
     parser.add_argument("--remote", default="fork")
     parser.add_argument("--worktree-root", default="/root/pr_worktrees")
     parser.add_argument("--worktree-template", default="")

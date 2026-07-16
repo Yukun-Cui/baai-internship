@@ -156,7 +156,7 @@ pre-commit run --files src/flag_gems/ops/<op>.py tests/test_<op>.py benchmark/te
 - ❌ **禁止 Co-Authored-By** — CLA CI 会失败
 - ❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，容易带入旧基线并造成 PR merge conflict
 - ❌ **禁止 rebase** — 分支已基于 upstream/master 创建
-- 只 stage 6 个文件，分支名 `pr/<op>`，push 到 `origin`（指向 fork `Yukun-Cui/FlagGems`，由 `submit_operator.py` 固定）
+- 只 stage 6 个文件，分支名 `pr/<op>`，push 到 `origin`（指向 fork `Yukun-Cui/FlagGems-Experimental`，由 `submit_operator.py` 固定）
 
 ## Phase 7: Backfill
 

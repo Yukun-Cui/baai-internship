@@ -86,5 +86,5 @@
 - [ ] 已确认无大段 inline autotune config；需要 autotune 时优先外置到 tune_configs.yaml
 - [ ] 已 `git fetch upstream` 并确认分支与 `upstream/master` 无 merge conflict
 - [ ] 已确认普通算子 PR 未修改全局 infra 文件：`tools/vendor.sh`、`setup.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 等
-- [ ] push 后或请求 review 前已运行 `gh pr diff <PR> --repo flagos-ai/FlagGems --name-only`，确认 diff 只包含当前算子相关文件
+- [ ] push 后或请求 review 前已运行 `gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only`，确认 diff 只包含当前算子相关文件
 - [ ] public API 可能绕过注册时，已增加 direct wrapper 或 `torch.ops.aten` 测试

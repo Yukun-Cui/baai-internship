@@ -10,7 +10,7 @@
     python operator_registry.py lookup _cholesky_solve_helper
 
     # 回填 PR 链接
-    python operator_registry.py backfill _cholesky_solve_helper https://github.com/flagos-ai/FlagGems/pull/3354
+    python operator_registry.py backfill _cholesky_solve_helper https://github.com/flagos-ai/FlagGems-Experimental/pull/3354
 
     # 列出待提交的算子（未回填 PR 链接的）
     python operator_registry.py pending [--limit 20]

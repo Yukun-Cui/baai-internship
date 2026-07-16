@@ -14,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare PR worktrees.")
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--repo-dir", default="/root/FlagGems")
-    parser.add_argument("--repo", default="flagos-ai/FlagGems")
+    parser.add_argument("--repo", default="flagos-ai/FlagGems-Experimental")
     parser.add_argument("--remote", default="fork")
     parser.add_argument("--upstream-remote", default="upstream")
     parser.add_argument("--upstream-branch", default="master")

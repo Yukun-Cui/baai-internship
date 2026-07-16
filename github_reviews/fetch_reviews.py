@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unreplied", action="store_true", help="Only show unreplied actionable external comments.")
     parser.add_argument("--state", choices=["open", "closed", "all"], default="all", help="Filter PR state.")
     parser.add_argument("--open", action="store_true", help="Shortcut for --state open.")
-    parser.add_argument("--repo", default=os.environ.get("UPSTREAM", "flagos-ai/FlagGems"))
+    parser.add_argument("--repo", default=os.environ.get("UPSTREAM", "flagos-ai/FlagGems-Experimental"))
     parser.add_argument("--author", default=os.environ.get("AUTHOR", "Yukun-Cui"))
     parser.add_argument("--output", help="Write report to this file.")
     return parser.parse_args()

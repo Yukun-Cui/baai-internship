@@ -236,7 +236,7 @@ def test_reflection_pad3d_list_padding(...):
 “文件最终内容和 upstream 一样”不代表 GitHub PR diff 会干净。请求 review 前必须看 reviewer 实际会看到的 diff：
 
 ```bash
-gh pr diff <PR> --repo flagos-ai/FlagGems --name-only
+gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only
 ```
 
 普通算子 PR 通常只允许以下文件：

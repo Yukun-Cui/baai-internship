@@ -38,7 +38,7 @@ AI_ATTRIBUTION_RE = re.compile(
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = "/root/FlagGems"
-FORK_REPO = "Yukun-Cui/FlagGems"
+FORK_REPO = "Yukun-Cui/FlagGems-Experimental"
 
 # 当前正在提交的算子名（用于 fatal 中记录事件）
 _current_op = None
@@ -541,7 +541,7 @@ def main():
     else:
         result = run(
             [
-                "gh", "api", "repos/flagos-ai/FlagGems/pulls",
+                "gh", "api", "repos/flagos-ai/FlagGems-Experimental/pulls",
                 "-f", f"title={title}",
                 "-f", f"head={FORK_REPO.split('/')[0]}:{branch}",
                 "-f", "base=master",

@@ -91,7 +91,7 @@ ln -sf "$REPO_DIR/.worktrees" "$WORKTREE_DIR/.worktrees"
 
 # Setup push remote in worktree
 cd "$WORKTREE_DIR"
-git remote set-url origin "https://${GH_TOKEN}@github.com/Yukun-Cui/FlagGems.git" 2>/dev/null || true
+git remote set-url origin "https://${GH_TOKEN}@github.com/Yukun-Cui/FlagGems-Experimental.git" 2>/dev/null || true
 
 # ============================================================================
 # Phase 2: operator_registry.py lookup
@@ -127,7 +127,7 @@ echo "$SUBMIT_OUTPUT" >> "$LOG_FILE"
 
 if [[ $SUBMIT_EXIT -eq 0 ]]; then
     # Extract PR URL from submit_operator.py output
-    PR_URL=$(echo "$SUBMIT_OUTPUT" | grep -oP 'PR:\s*\Khttps://github\.com/flagos-ai/FlagGems/pull/\d+' | tail -1)
+    PR_URL=$(echo "$SUBMIT_OUTPUT" | grep -oP 'PR:\s*\Khttps://github\.com/flagos-ai/FlagGems-Experimental/pull/\d+' | tail -1)
     write_json "success" "" "" "$PR_URL"
     exit 0
 else

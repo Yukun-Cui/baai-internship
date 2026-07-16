@@ -3,5 +3,4 @@
 # Supports: 'round', 'aten::round', 'aten::round.Tensor'
 # The script will automatically strip 'aten::' prefix and overload suffixes
 
-svd
-linalg_svd
+underscore_linalg_svd

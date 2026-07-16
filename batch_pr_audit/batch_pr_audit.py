@@ -678,7 +678,7 @@ def deterministic_checks(metadata: dict, files: list[str], diff_text: str) -> di
         files=files,
         current_ids=current_ids,
         backend_state=backend_state,
-        repo="flagos-ai/FlagGems",
+        repo="flagos-ai/FlagGems-Experimental",
     )
     for severity, check, message, evidence in specialization_dependency_findings:
         add(severity, check, message, evidence)
@@ -2027,7 +2027,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prs-file", type=Path, help="File containing PR numbers or URLs")
     parser.add_argument("--query", help="gh pr list --search query")
     parser.add_argument("--query-limit", type=int, default=50)
-    parser.add_argument("--repo", default=defaults.get("REPO", "flagos-ai/FlagGems"))
+    parser.add_argument("--repo", default=defaults.get("REPO", "flagos-ai/FlagGems-Experimental"))
     parser.add_argument("--skill-dir", type=Path, default=defaults.get("SKILL_DIR", "/root/baai-internship/skills/flaggems-pr-submit"))
     parser.add_argument("--report-dir", type=Path, default=defaults.get("REPORT_DIR", "/root/baai-internship/batch_pr_audit/reports"))
     parser.add_argument("--prompt-template", type=Path, default=Path(__file__).parent / "prompts/pr_audit_prompt.md")

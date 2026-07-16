@@ -1,7 +1,7 @@
 github:
   username: "Yukun-Cui"
   token_env: "GITHUB_TOKEN"
-  repo: "flagos-ai/FlagGems"
+  repo: "flagos-ai/FlagGems-Experimental"
 
 paths:
   review_fetcher_dir: "/root/baai-internship/pr_review_loop/github_reviews"
@@ -35,4 +35,4 @@ commands:
   claude_review_command: "python3 /root/baai-internship/pr_review_loop/tools/claude_review.py --task-dir {task_dir} --worktree /root/pr_worktrees/pr{pr_num} --cwd /root/FlagGems --timeout 900"
   audit_command: "python3 /root/baai-internship/pr_review_loop/tools/codex_audit.py --task-dir {task_dir} --worktree /root/pr_worktrees/pr{pr_num}"
   commit_command: "python3 /root/baai-internship/pr_review_loop/tools/commit_approved_prs.py --run-dir {run_dir} --worktree-root /root/pr_worktrees"
-  push_command: "python3 /root/baai-internship/pr_review_loop/tools/push_approved_prs.py --run-dir {run_dir} --repo flagos-ai/FlagGems --remote fork --worktree-root /root/pr_worktrees"
+  push_command: "python3 /root/baai-internship/pr_review_loop/tools/push_approved_prs.py --run-dir {run_dir} --repo flagos-ai/FlagGems-Experimental --remote fork --worktree-root /root/pr_worktrees"

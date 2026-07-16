@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--since")
     parser.add_argument("--date")
-    parser.add_argument("--repo", default=os.environ.get("UPSTREAM", "flagos-ai/FlagGems"))
+    parser.add_argument("--repo", default=os.environ.get("UPSTREAM", "flagos-ai/FlagGems-Experimental"))
     parser.add_argument("--author", default=os.environ.get("AUTHOR", "Yukun-Cui"))
     parser.add_argument("--state", choices=["open", "closed", "all"], default="open")
     parser.add_argument("--limit", type=int, default=10)

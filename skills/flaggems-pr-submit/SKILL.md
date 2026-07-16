@@ -73,7 +73,7 @@ description: >
 以下规则用于减少 reviewer churn；它们不替代上面的提交门禁，只约束普通 operator PR 的 diff、文案和 reviewer 可见代码形态。
 
 1. **禁止污染全局 infra 文件** — 普通算子 PR 不得修改 `tools/vendor.sh`、`setup.sh`、`tools/env.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 或全局依赖 pin。若 CI 在安装依赖、checkout、环境初始化阶段失败，先归类为 upstream/infra 环境问题并等待或基于最新 `upstream/master` 重建干净分支；不要在算子 PR 中改依赖绕过。
-2. **PR diff 必须保持 operator-scoped** — push 后或请求 review 前运行 `gh pr diff <PR> --repo flagos-ai/FlagGems --name-only`。允许文件通常只有 `src/flag_gems/ops/<op>.py`、`tests/test_<op>.py`、`benchmark/test_<op>.py`、`conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/__init__.py`；仅当当前算子确实需要时，允许 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml` 或 `benchmark/core_shapes.yaml`。若出现非预期文件，重新基于最新 `upstream/master` 创建干净分支并重新提取/提交，不用 rebase 或 infra patch 掩盖。
+2. **PR diff 必须保持 operator-scoped** — push 后或请求 review 前运行 `gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only`。允许文件通常只有 `src/flag_gems/ops/<op>.py`、`tests/test_<op>.py`、`benchmark/test_<op>.py`、`conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/__init__.py`；仅当当前算子确实需要时，允许 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml` 或 `benchmark/core_shapes.yaml`。若出现非预期文件，重新基于最新 `upstream/master` 创建干净分支并重新提取/提交，不用 rebase 或 infra patch 掩盖。
 3. **logger 位置必须 reviewer 友好** — public wrapper 的 `logger.debug("GEMS <OP>")` 应是 docstring 后第一条有意义语句，先于输入检查、shape normalization、dtype cast 等逻辑。message 继续遵循 Rule 47 的 uppercase underscore 格式；确有例外时必须能用 sibling precedent 解释。
 4. **Benchmark class 保持 module-scoped** — `benchmark/test_<op>.py` 中自定义 benchmark class 必须定义在模块顶层，`test_<op>()` 只负责实例化并 `run()`。不得在 pytest test function 内定义 class。
 5. **禁止空壳 benchmark override** — 不保留只调用 `super().set_shapes(...)` / `super().set_more_shapes(...)` 且不改变行为的 override；只有实际改变 shapes、输入构造或 benchmark 行为时才覆盖。
@@ -190,7 +190,7 @@ python scripts/extract_from_worktree.py CrossAttention \
 |------|-------|
 | Repo | Default `/root/FlagGems`; caller-provided `--repo-dir` overrides this |
 | Fork | Caller-provided git remote / `GH_TOKEN` identity |
-| Upstream | `flagos-ai/FlagGems` |
+| Upstream | `flagos-ai/FlagGems-Experimental` |
 | Worktrees | `/root/FlagGems/.worktrees/gen-<op>` unless `--repo-dir` overrides repo |
 | Token | `GH_TOKEN` from the current process environment |
 | Data | `/root/baai-internship/skills/flaggems-pr-submit/data/规范名.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/第一批pr算子.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/pr状态记录.md` |
