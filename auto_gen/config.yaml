@@ -15,7 +15,7 @@ device:
   - 6
   - 7
   lock_dir: /tmp/auto_gen_gpu_locks
-flaggems_dir: /root/FlagGems
+flaggems_dir: /root/FlagGems-Experimental
 branch_prefix: pr/
 iluvatar:
   ops_list: ops_list_iluvatar.txt
@@ -31,4 +31,4 @@ poll_interval: 10
 python_path: /usr/bin/python3
 results_dir: results
 template: templates/generate_op.md
-timeout_per_op: 9600
+timeout_per_op: 0

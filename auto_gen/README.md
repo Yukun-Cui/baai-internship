@@ -72,6 +72,8 @@ python3 orchestrator.py --resume results/summary_<timestamp>.json ops_list.txt
 # 恢复时同时重试上次失败的算子
 python3 orchestrator.py --resume results/summary_<timestamp>.json --retry-failed ops_list.txt
 
+python3 orchestrator.py --resume results/summary_20260721_171452.json --retry-failed --mthreads
+
 # 干跑：不真正启动 Claude Code，只走一遍流程（用于验证配置/调度）
 python3 orchestrator.py --dry-run ops_list.txt
 

@@ -7,10 +7,10 @@ benchmark results. These scripts are not part of the PR-submit skill workflow.
 
 Write a timestamped confirmation list before each batch. The audit identifies:
 
-- PRs whose current H20 arithmetic mean speedup is below the threshold and
+- PRs whose current H20 geometric mean speedup is below the threshold and
   therefore need CI performance cleanup
 - PRs that are already formatted correctly
-- PRs with any arithmetic mean speedup below the attention threshold
+- PRs with any geometric mean speedup below the attention threshold
 
 ```bash
 python /root/baai-internship/ci_performance_update/audit_open_pr_h20_performance.py
@@ -30,7 +30,7 @@ python /root/baai-internship/ci_performance_update/audit_open_pr_h20_performance
 ```
 
 By default, `Needs Description Update` only includes PRs that still have H20
-data and at least one arithmetic mean speedup below `0.8`. That section is the
+data and at least one geometric mean speedup below `0.8`. That section is the
 input list for the next update batch. The `Low-Speedup Attention` section is
 separate: those PRs may already have correct descriptions, but need later
 performance follow-up.
