@@ -54,8 +54,10 @@ description and speedup data).
 5. **设备判定用 `"musa"`** — `x.device.type == "musa"`，**不是** `"cuda"`
 6. **不支持 fp64/int64** — 摩尔线程硬件 `fp64_enabled=False`。kernel 内部需 double/long 计算时
    转 fp32/int32；或用 `_SUPPORTED_DTYPES` 白名单过滤，不支持的 dtype 回退通用实现
-7. **Logger 前缀 `GEMS_MTHREADS`** — `logger.debug("GEMS_MTHREADS <OP>")`（算子名大写），是 docstring 后
-   第一条有意义语句
+7. **Logger 命名 + 前缀** — 两条都必须满足：
+   (a) **命名用摩尔线程后端专用写法**，`logger = logging.getLogger(f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}')`，
+   **禁止**主文件夹写法 `logging.getLogger(__name__)`（与上游 `_mthreads/ops/celu.py`、`log.py`、`mm.py` 一致）；
+   (b) **文案前缀 `GEMS_MTHREADS`**，`logger.debug("GEMS_MTHREADS <OP>")`（算子名大写），是 docstring 后第一条有意义语句
 8. **跨后端数学函数用 `tl_extra_shim`** — **禁止**直接调用 `tl.extra.cuda.libdevice`（非 NVIDIA 后端会崩溃）。
    用 `from flag_gems.utils import libentry, tl_extra_shim` 后 `exp = tl_extra_shim.exp` 等
 9. **核心计算必须用 Triton kernel** — 核心数学运算必须由 `@triton.jit` / `@pointwise_dynamic` 完成。
@@ -185,7 +187,12 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/prepare_
 
 **Kernel review checklist（对照 `celu.py`）：**
 - 文件头是 Apache License 段（不是 KernelGen 首行）
-- `import logging` + `logger = logging.getLogger(__name__)`
+- `import logging` + 摩尔线程后端专用 logger 命名（**不是** `getLogger(__name__)`）：
+  ```python
+  logger = logging.getLogger(
+      f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}'
+  )
+  ```
 - 从 `flag_gems.ops.<op>` import 通用实现作为 `default_<op>`
 - `_SUPPORTED_DTYPES = {torch.float16, torch.bfloat16, torch.float32}`（不含 fp64/int64）
 - `_use_triton_kernel()` 判定 `device.type == "musa"` + dtype 白名单 + contiguous + numel>0
@@ -282,7 +289,7 @@ Compared against the generic FlagGems implementation on Moore Threads (MUSA).
 |---|---|---|---|---|
 | ... | ... | ... | ... | ...x |
 
-Geometric Mean Speedup: <value>x
+**Geometric Mean Speedup: <value>x**
 
 ## Files Changed
 - `src/flag_gems/runtime/backend/_mthreads/ops/<op>.py`: Moore Threads Triton kernel + fallback
@@ -306,7 +313,8 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 1. **设备判定 `"musa"`** — 不是 `"cuda"`；用 `x.device.type == "musa"` 决定走特化
 2. **fallback 完整** — 所有不满足特化条件的分支都回退 `default_<op>`，不能崩溃或算错
 3. **fp64/int64 处理** — 白名单过滤或 kernel 内转 fp32/int32；测试若含 fp64 应走 fallback 而非报错
-4. **`GEMS_MTHREADS` 日志** — 存在且是 wrapper 第一条语句；测试中确实打印出来（证明被替换）
+4. **Logger 命名 + `GEMS_MTHREADS` 文案** — logger 用 `getLogger(f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}')`
+   （非 `__name__`）；`logger.debug("GEMS_MTHREADS <OP>")` 是 wrapper 第一条语句，测试中确实打印出来（证明被替换）
 5. **`tl_extra_shim` 而非 libdevice** — `tl.extra.cuda.libdevice` 在 MUSA 上会崩溃
 6. **只改 2 个文件** — `git diff --name-only` 确认没碰通用层 / yaml / 其他 backend
 7. **device_capability 分区** — BLAS 类算子注册在 `capability[0] >= 3` 块内
@@ -318,6 +326,8 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 
 - `references/pr-checklist.md` — 逐项检查清单（摩尔线程版）
 - `references/common-issues.md` — 摩尔线程特化历史问题与解决
+- `references/naming.md` — 下划线前缀 / inplace 算子命名规则（摩尔线程复用上游版）
+- `data/README.md` — data 目录说明与数据文件解析顺序（本地 → 通用版共享）
 - `scripts/check_operator.py` — 自动化验证脚本（摩尔线程版）
 - 参考 kernel: `_mthreads/ops/celu.py`、`log.py`、`addmm.py`
 - `auto_gen/templates/generate_op_mthreads.md` — 摩尔线程算子生成模板（含 MUSA 环境说明）

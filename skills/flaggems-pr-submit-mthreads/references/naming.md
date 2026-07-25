@@ -1,0 +1,37 @@
+# 下划线前缀算子命名规则（摩尔线程特化版）
+
+示例算子：`_cholesky_solve_helper`
+
+摩尔线程特化**复用上游已有的 test / benchmark / operators.yaml**（不新建），
+但 kernel 文件、函数名、`_mthreads/ops/__init__.py` 注册仍遵循同一套命名规则。
+
+## 去掉前导下划线的位置（仅复用上游时对照，本 skill 不新建）
+
+| 位置 | 示例 | 摩尔线程是否新建 |
+|------|------|-----------------|
+| pytest mark（跑上游 test 时 `-m`） | `-m cholesky_solve_helper` | 复用上游 |
+| operators.yaml `id` | `id: cholesky_solve_helper` | 不改（通用层已有） |
+| benchmark `op_name` | `op_name="cholesky_solve_helper"` | 复用上游 |
+| 测试 / benchmark 文件名 | `tests/test_cholesky_solve_helper.py` | 复用上游 |
+| 测试函数名 | `def test_cholesky_solve_helper(...)` | 复用上游 |
+
+## 保留前导下划线的位置（本 skill 实际提交的文件）
+
+| 位置 | 示例 |
+|------|------|
+| kernel 文件名 | `src/flag_gems/runtime/backend/_mthreads/ops/_cholesky_solve_helper.py` |
+| 函数名（wrapper） | `_cholesky_solve_helper` |
+| `_mthreads/ops/__init__.py` import / `__all__` | `from ._cholesky_solve_helper import _cholesky_solve_helper` |
+| 回退目标 default 名 | `from flag_gems.ops._cholesky_solve_helper import _cholesky_solve_helper as default__cholesky_solve_helper` |
+| 代码中实际调用 | `torch._cholesky_solve_helper(...)` |
+
+## 尾部下划线（inplace）
+
+尾部 `_` 始终保留：`bernoulli_` → 上游 mark `bernoulli_`、kernel 文件 `bernoulli_.py`、
+wrapper `bernoulli_`、分支 `pr/mthreads-bernoulli_`。
+
+## 与通用版差异
+
+- 摩尔线程**不涉及** `_FULL_CONFIG`、`conf/operators.yaml` 新增（通用层已注册）
+- 唯一注册点是 `_mthreads/ops/__init__.py`（BLAS 类算子在 `capability[0]>=3` 分区内，按字母序）
+- fused 算子的 source/impl/canonical 名翻译由 KernelGen worktree 侧决定，本 skill 直接沿用

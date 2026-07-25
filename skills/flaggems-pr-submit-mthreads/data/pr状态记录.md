@@ -10,4 +10,6 @@ PR 创建事件等。每条包含：日期、算子、事件类型、说明。
 
 | 日期 | 算子 | 类型 | 说明 |
 |------|------|------|------|
-| | | | |
+| 2026-07-24 | linalg_cholesky | 测试失败-未提交 | fp64 fallback 触发 RecursionError（replace_customized_ops 替换后 default_linalg_cholesky 指向 wrapper 自身）；batch fp32 路径出现 BmmCall MUDNN NOT_SUPPORTED。10/20 tests failed。内核需彻底修复 fallback 机制后再提交。 |
+| 2026-07-24 | median | 无 worktree-未提交 | .worktrees/gen-median 不存在，无预生成内核，跳过。 |
+| 2026-07-24 | histc | 低加速比-小 shape | sizes [64,64] speedup=0.77x、[256,256] speedup=0.76x，大 shape 显著加速（geomean 1.95x），已提交 PR#114。 |

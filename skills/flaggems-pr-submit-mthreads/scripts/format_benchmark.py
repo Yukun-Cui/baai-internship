@@ -21,7 +21,7 @@ import sys
 
 # 与通用 skill (gen_pr_description.py) 保持同一套解析正则
 BENCH_RE = re.compile(
-    r"SUCCESS\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(?:([\d.]+)\s+)?[\[{](.+?)[\]}]\s*$"
+    r"SUCCESS\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(?:([\d.]+)\s+)?[\[{(](.+?)[\]})]\s*$"
 )
 OP_HEADER_RE = re.compile(
     r"Operator:\s+(\S+)\s+Performance Test\s+\(dtype=([^,]+),"
@@ -96,7 +96,7 @@ def format_table(rows):
     gm = geometric_mean(r["speedup"] for r in rows)
     if gm:
         lines.append("")
-        lines.append(f"Geometric Mean Speedup: {gm:.2f}x")
+        lines.append(f"**Geometric Mean Speedup: {gm:.2f}x**")
     return "\n".join(lines)
 
 

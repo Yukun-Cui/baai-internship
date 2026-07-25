@@ -32,7 +32,23 @@
 - 用 `from flag_gems.utils import tl_extra_shim` 后 `exp = tl_extra_shim.exp` 等
 - 或用 Triton 内置 `tl.math.*`
 
-## 5. Logger 文案
+## 5. Logger 命名与文案
+
+### 5.1 Logger 命名（易错点）
+
+- 摩尔线程后端 **不用** 主文件夹写法 `logging.getLogger(__name__)`
+- 必须用后端专用写法（与上游 `_mthreads/ops/celu.py`、`log.py`、`mm.py` 一致）：
+  ```python
+  logger = logging.getLogger(
+      f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}'
+  )
+  ```
+- 说明：`__name__.split(".")[-1]` 取模块名末段（如 `celu`），显式拼上
+  `flag_gems.runtime.backend._mthreads.ops.` 前缀，保证 vendor backend 动态加载时
+  logger 层级稳定，不受导入路径 / `__name__` 变化影响
+- auto_gen 从通用层复制模板时常残留 `getLogger(__name__)`，提交前务必替换
+
+### 5.2 Logger 文案
 
 - 摩尔线程特化用 `logger.debug("GEMS_MTHREADS <OP>")`（算子名大写，如 `GEMS_MTHREADS CELU`）
 - 与通用算子的 `GEMS <OP>` 区分，便于确认走的是特化路径

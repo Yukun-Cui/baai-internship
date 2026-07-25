@@ -46,6 +46,10 @@ def _resolve(env_key, filename):
 
 NORM_XLSX = _resolve("FLAGGEMS_NORM_XLSX", "规范名.xlsx")
 PR_XLSX = _resolve("FLAGGEMS_PR_XLSX", "第一批pr算子.xlsx")
+# pr状态记录.md 是本 skill 独有（不与通用版共享），默认落在本地 data/。
+RECORD_PATH = os.environ.get(
+    "FLAGGEMS_PR_RECORD_PATH", os.path.join(_LOCAL_DATA, "pr状态记录.md")
+)
 
 
 def load_norm_names():

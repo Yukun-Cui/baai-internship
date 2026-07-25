@@ -99,9 +99,37 @@ class OperatorChecker:
 
         if "import logging" in content and "logging.getLogger" in content:
             ok("使用 logging 模块")
+            # 摩尔线程后端专用 logger 命名：不允许主文件夹写法 getLogger(__name__)
+            backend_logger = re.search(
+                r'getLogger\(\s*f["\']flag_gems\.runtime\.backend\._mthreads\.ops\.'
+                r'\{__name__\.split\(["\']\.["\']\)\[-1\]\}["\']\s*\)',
+                content,
+            )
+            if backend_logger:
+                ok("logger 命名符合摩尔线程后端专用写法")
+            elif re.search(r'getLogger\(\s*__name__\s*\)', content):
+                self.errors.append(
+                    "logger 命名使用了主文件夹写法 getLogger(__name__)，"
+                    "摩尔线程后端应为 "
+                    "getLogger(f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(\".\")[-1]}')"
+                )
+                fail(
+                    'logger 命名应为 getLogger('
+                    "f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(\".\")[-1]}')"
+                    "（参考 _mthreads/ops/celu.py），不是 getLogger(__name__)"
+                )
+            else:
+                self.warnings.append("logger 命名未匹配摩尔线程后端专用写法，请人工确认")
+                warn(
+                    "建议 logger = getLogger("
+                    "f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(\".\")[-1]}')"
+                )
         else:
             self.warnings.append("kernel 未使用 logging 模块")
-            warn("建议 logger = logging.getLogger(__name__)")
+            warn(
+                "建议 logger = logging.getLogger("
+                "f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(\".\")[-1]}')"
+            )
 
         if "print(" in content:
             self.errors.append("kernel 文件中使用了 print()")

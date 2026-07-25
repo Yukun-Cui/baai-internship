@@ -141,8 +141,13 @@ from flag_gems.runtime import torch_device_fn
 from flag_gems.utils import libentry
 from flag_gems.utils.triton_lang_helper import tl_extra_shim  # 跨后端数学函数
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(
+    f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}'
+)
 ```
+
+> **注意：摩尔线程后端 logger 命名用上面的后端专用写法，不是主文件夹的 `getLogger(__name__)`**
+> （与 `_mthreads/ops/celu.py`、`log.py`、`mm.py` 一致）。
 
 2. **设备判定用 `"musa"`** — 摩尔线程张量的 `device.type == "musa"`，可据此决定是否走特化 kernel：
 ```python
@@ -199,7 +204,7 @@ exp = tl_extra_shim.exp
 
 **要求：**
 - 参考已有摩尔线程算子的代码风格（`celu.py`, `log.py`, `addmm.py`）
-- 必须有 `import logging` 和 `logger = logging.getLogger(__name__)`
+- 必须有 `import logging` 和后端专用 logger 命名 `logger = logging.getLogger(f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}')`（**不是** `getLogger(__name__)`）
 - 函数名遵循已有摩尔线程命名规范
 - 设备判定使用 `device.type == "musa"`，不满足特化条件时回退通用实现 `default_{{OPERATOR}}`
 - Logger 使用 `"GEMS_MTHREADS ..."` 前缀

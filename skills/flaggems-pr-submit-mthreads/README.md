@@ -29,7 +29,7 @@ FlagGems **摩尔线程(Moore Threads/MUSA)** 特化算子 PR 提交 skill，用
 |------|------|
 | `SKILL.md` | agent 主说明：触发条件、硬规则、工作流、门禁 |
 | `scripts/` | 自动化脚本：查询、预检、提取注册、检查、生成 PR 描述、提交、创建 PR |
-| `references/` | 辅助文档：PR checklist、常见问题 |
+| `references/` | 辅助文档：PR checklist、常见问题、命名规则(naming) |
 | `data/` | 可变数据（PR 状态记录）；规范名/待提交列表默认复用 `flaggems-pr-submit/data/` |
 
 ## 脚本
