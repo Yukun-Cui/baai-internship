@@ -95,8 +95,8 @@
 
 ## 11. 环境命令对照（勿混用其他后端）
 
-| 用途 | NVIDIA | 昇腾 | 摩尔线程 |
-|------|--------|------|---------|
-| 卡状态 | `nvidia-smi` | `npu-smi info` | `mthreads-gmi` |
-| 指定卡 | `CUDA_VISIBLE_DEVICES` | `ASCEND_VISIBLE_DEVICES` | `MUSA_VISIBLE_DEVICES` |
-| device.type | `cuda` | `npu` | `musa` |
+| 用途 | NVIDIA | 摩尔线程 |
+|------|--------|---------|
+| 卡状态 | `nvidia-smi` | `mthreads-gmi` |
+| 指定卡 | `CUDA_VISIBLE_DEVICES` | `MUSA_VISIBLE_DEVICES` |
+| device.type | `cuda` | `musa` |

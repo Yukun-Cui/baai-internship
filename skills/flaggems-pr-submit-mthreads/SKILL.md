@@ -21,22 +21,22 @@ description and speedup data).
 自动替换。因此测试 (`tests/test_<op>.py`) 和 benchmark (`benchmark/test_<op>.py`) 通常**已存在于上游**，
 本 skill **复用它们验证**，**不新写、不修改**。
 
-**与 NVIDIA 通用算子 PR / 昇腾特化 PR 的关键差异：**
+**与 NVIDIA 通用算子 PR 的关键差异：**
 
-| 项目 | NVIDIA 通用 | 昇腾特化 | 摩尔线程特化（本 skill） |
-|------|------------|---------|------------------------|
-| Kernel 路径 | `src/flag_gems/ops/<op>.py` | `_ascend/ops/<op>.py` | `src/flag_gems/runtime/backend/_mthreads/ops/<op>.py` |
-| 注册点 | `__init__.py` + `_FULL_CONFIG` + `ops/__init__.py` | `_ascend/ops/__init__.py` + yaml | **仅** `_mthreads/ops/__init__.py` |
-| 提交文件数 | 6 | 5 | **通常 2**（kernel + `_mthreads/ops/__init__.py`） |
-| test / benchmark | 新建 | 新建/追加 | **复用上游已有**（不新写） |
-| operators.yaml | 新增条目 | 新增条目 | **不改**（通用算子已有条目） |
-| 设备 | `cuda` | `npu`(PrivateUse1) | `musa`（`torch_musa`，`device.type == "musa"`） |
-| 回退 | 无 | 无 | **回退到 `flag_gems.ops.<op>` 通用实现** |
-| Logger | `GEMS <OP>` | `GEMS <OP>` | `GEMS_MTHREADS <OP>` |
-| PR 标签 | `[Nvidia]` | `[KernelGen][Ascend]` | `[KernelGen][MThreads]` |
-| 分支 | `pr/<op>` | `pr/ascend-<op>` | `pr/mthreads-<op>` |
-| 测试环境 | `CUDA_VISIBLE_DEVICES` + `nvidia-smi` | `ASCEND_VISIBLE_DEVICES` + `npu-smi info` + `--ref cpu` | `MUSA_VISIBLE_DEVICES` + `mthreads-gmi` + `fix_worktree_import.py` |
-| 硬件限制 | — | — | **不支持 fp64/int64**（kernel 内转 fp32/int32 或 dtype 白名单回退） |
+| 项目 | NVIDIA 通用 | 摩尔线程特化（本 skill） |
+|------|------------|------------------------|
+| Kernel 路径 | `src/flag_gems/ops/<op>.py` | `src/flag_gems/runtime/backend/_mthreads/ops/<op>.py` |
+| 注册点 | `__init__.py` + `_FULL_CONFIG` + `ops/__init__.py` | **仅** `_mthreads/ops/__init__.py` |
+| 提交文件数 | 6 | **通常 2**（kernel + `_mthreads/ops/__init__.py`） |
+| test / benchmark | 新建 | **复用上游已有**（不新写） |
+| operators.yaml | 新增条目 | **不改**（通用算子已有条目） |
+| 设备 | `cuda` | `musa`（`torch_musa`，`device.type == "musa"`） |
+| 回退 | 无 | **回退到 `flag_gems.ops.<op>` 通用实现** |
+| Logger | `GEMS <OP>` | `GEMS_MTHREADS <OP>` |
+| PR 标签 | `[Nvidia]` | `[KernelGen][MThreads]` |
+| 分支 | `pr/<op>` | `pr/mthreads-<op>` |
+| 测试环境 | `CUDA_VISIBLE_DEVICES` + `nvidia-smi` | `MUSA_VISIBLE_DEVICES` + `mthreads-gmi` + `fix_worktree_import.py` |
+| 硬件限制 | — | **不支持 fp64/int64**（kernel 内转 fp32/int32 或 dtype 白名单回退） |
 
 ## CRITICAL: Enforcement Rules
 
@@ -160,7 +160,7 @@ MUSA_VISIBLE_DEVICES=$GPU python3 /root/baai-internship/auto_gen/fix_worktree_im
 ```
 
 **摩尔线程特有注意事项：**
-- `mthreads-gmi` 查看 MUSA 卡状态（不是 `nvidia-smi` / `npu-smi`）
+- `mthreads-gmi` 查看 MUSA 卡状态（不是 `nvidia-smi`）
 - `MUSA_VISIBLE_DEVICES`（不是 `CUDA_VISIBLE_DEVICES`）
 - **必须** `cd` 进 worktree 后再运行 `fix_worktree_import.py`（脚本靠 CWD 检测 worktree 根目录）
 - 测试输出中**必须看到 `GEMS_MTHREADS <OP>` DEBUG 日志**，否则说明特化未被 `replace_customized_ops()` 替换

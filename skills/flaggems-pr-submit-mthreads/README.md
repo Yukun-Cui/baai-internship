@@ -9,18 +9,18 @@ FlagGems **摩尔线程(Moore Threads/MUSA)** 特化算子 PR 提交 skill，用
 
 ## 与其他 skill 的关键差异
 
-| 项目 | NVIDIA 通用 | 昇腾特化 | 摩尔线程特化（本 skill） |
-|------|------------|---------|------------------------|
-| Kernel 路径 | `src/flag_gems/ops/` | `_ascend/ops/` | `src/flag_gems/runtime/backend/_mthreads/ops/` |
-| 提交文件数 | 6 | 5 | 通常 2 |
-| test/benchmark | 新建 | 新建/追加 | 复用上游已有 |
-| operators.yaml | 改 | 改 | 不改 |
-| 设备 | `cuda` | `npu` | `musa`（`torch_musa`） |
-| 回退 | — | — | 回退 `flag_gems.ops.<op>` 通用实现 |
-| Logger | `GEMS <OP>` | `GEMS <OP>` | `GEMS_MTHREADS <OP>` |
-| PR 标签 | `[Nvidia]` | `[KernelGen][Ascend]` | `[KernelGen][MThreads]` |
-| 分支 | `pr/<op>` | `pr/ascend-<op>` | `pr/mthreads-<op>` |
-| 硬件限制 | — | — | 不支持 fp64/int64 |
+| 项目 | NVIDIA 通用 | 摩尔线程特化（本 skill） |
+|------|------------|------------------------|
+| Kernel 路径 | `src/flag_gems/ops/` | `src/flag_gems/runtime/backend/_mthreads/ops/` |
+| 提交文件数 | 6 | 通常 2 |
+| test/benchmark | 新建 | 复用上游已有 |
+| operators.yaml | 改 | 不改 |
+| 设备 | `cuda` | `musa`（`torch_musa`） |
+| 回退 | — | 回退 `flag_gems.ops.<op>` 通用实现 |
+| Logger | `GEMS <OP>` | `GEMS_MTHREADS <OP>` |
+| PR 标签 | `[Nvidia]` | `[KernelGen][MThreads]` |
+| 分支 | `pr/<op>` | `pr/mthreads-<op>` |
+| 硬件限制 | — | 不支持 fp64/int64 |
 
 ## 目录结构
 
