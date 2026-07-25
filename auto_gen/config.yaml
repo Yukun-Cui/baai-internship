@@ -19,7 +19,7 @@ flaggems_dir: /root/FlagGems-Experimental
 branch_prefix: pr/
 iluvatar:
   ops_list: ops_list_iluvatar.txt
-  template: templates/generate_op_iluvatar_optimize.md
+  template: templates/generate_op_iluvatar.md
 max_retries: 3
 metax:
   ops_list: ops_list_metax.txt

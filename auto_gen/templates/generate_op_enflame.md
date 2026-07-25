@@ -151,10 +151,14 @@ import triton.language as tl
 
 from ..utils.pointwise_dynamic import pointwise_dynamic
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(
+    f'flag_gems.runtime.backend._enflame.{{ARCH}}.ops.{__name__.split(".")[-1]}'
+)
 ```
 
 > ⚠️ **关键差异**：燧原后端从架构目录下的 `..utils.pointwise_dynamic` 导入 `pointwise_dynamic`，**不要**用 `from flag_gems.utils import pointwise_dynamic`。其他工具（如 `libentry`、`tune` 相关）也优先看 `{{ARCH}}/utils/` 下是否有本地版本。
+
+> **注意：logger 命名用燧原后端专用写法（含 `{{ARCH}}` 真实模块路径），不是主文件夹的 `getLogger(__name__)`**。vendor 后端经替换系统加载时 `__name__` 可能不以 `flag_gems.` 开头，用显式全路径才能正确挂到 `flag_gems` 根 logger。
 
 2. **Logger 使用 `GEMS_ENFLAME` 前缀**：
 ```python
@@ -189,7 +193,7 @@ def abs_func(x):
 
 **要求：**
 - 参考已有燧原算子的代码风格（`abs.py`, `add.py`, `addmm.py`, `amax.py`）
-- 必须有 `import logging` 和 `logger = logging.getLogger(__name__)`
+- 必须有 `import logging` 和燧原后端专用 logger 命名 `logger = logging.getLogger(f'flag_gems.runtime.backend._enflame.{{ARCH}}.ops.{__name__.split(".")[-1]}')`（**不是** `getLogger(__name__)`）
 - 从 `..utils.pointwise_dynamic` 导入 `pointwise_dynamic`（本地版本）
 - 函数名遵循已有燧原命名规范（如 `{{OPERATOR}}`、`{{OPERATOR}}_`、`{{OPERATOR}}_func`）
 - Logger 使用 `"GEMS_ENFLAME ..."` 前缀（全大写算子名）

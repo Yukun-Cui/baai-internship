@@ -130,8 +130,12 @@ from flag_gems import runtime
 from flag_gems.runtime import torch_device_fn
 from flag_gems.utils import libentry, pointwise_dynamic, tl_extra_shim
 
-logger = logging.getLogger("flag_gems." + __name__)
+logger = logging.getLogger(
+    f'flag_gems.runtime.backend._iluvatar.ops.{__name__.split(".")[-1]}'
+)
 ```
+
+> **注意：logger 命名用天数后端专用写法（与 mthreads 主线一致），不是 `getLogger(__name__)` 或 `"flag_gems." + __name__`**。vendor 后端经替换系统加载时 `__name__` 可能不以 `flag_gems.` 开头，用显式全路径才能正确挂到 `flag_gems` 根 logger。
 
 2. **使用 `torch_device_fn.device()` 管理设备**：
 ```python
@@ -179,7 +183,7 @@ div_rz = tl_extra_shim.div_rz
 
 **要求：**
 - 参考已有天数算子的代码风格（唯一参考：`div.py`）
-- 必须有 `import logging` 和 `logger = logging.getLogger("flag_gems." + __name__)`
+- 必须有 `import logging` 和天数后端专用 logger 命名 `logger = logging.getLogger(f'flag_gems.runtime.backend._iluvatar.ops.{__name__.split(".")[-1]}')`（**不是** `getLogger(__name__)`）
 - 函数名遵循已有天数命名规范
 - Logger 使用 `"ILUVATAR GEMS ..."` 前缀
 - **禁止**直接调用 `tl.extra.cuda.libdevice`，这在非 NVIDIA 后端上会崩溃

@@ -141,8 +141,12 @@ from flag_gems.runtime import torch_device_fn
 from flag_gems.utils import libentry, pointwise_dynamic
 from flag_gems.utils import triton_lang_extension as tle  # 重要！
 
-logger = logging.getLogger("flag_gems." + __name__)
+logger = logging.getLogger(
+    f'flag_gems.runtime.backend._metax.ops.{__name__.split(".")[-1]}'
+)
 ```
+
+> **注意：logger 命名用沐曦后端专用写法（与 mthreads 主线一致），不是 `getLogger(__name__)` 或 `"flag_gems." + __name__`**。vendor 后端经替换系统加载时 `__name__` 可能不以 `flag_gems.` 开头，用显式全路径才能正确挂到 `flag_gems` 根 logger。
 
 2. **使用 `tle.program_id()` 代替 `tl.program_id()`** — 跨后端兼容
 
@@ -186,7 +190,7 @@ def my_pointwise_op(x):
 
 **要求：**
 - 参考已有沐曦算子的代码风格（`sigmoid.py`, `addmm.py`, `amax.py`）
-- 必须有 `import logging` 和 `logger = logging.getLogger("flag_gems." + __name__)`
+- 必须有 `import logging` 和沐曦后端专用 logger 命名 `logger = logging.getLogger(f'flag_gems.runtime.backend._metax.ops.{__name__.split(".")[-1]}')`（**不是** `getLogger(__name__)`）
 - 函数名遵循已有沐曦命名规范
 - 使用 `tle.program_id()` 代替 `tl.program_id()`
 - Logger 使用 `"METAX GEMS ..."` 前缀
