@@ -28,7 +28,7 @@ github_reviews 抓取未回复 review
 | [ci_performance_update](./ci_performance_update/) | 从 CI 提取性能数据并更新 PR 描述，审计 H20 性能 | `python3 ./ci_performance_update/update_pr_performance_from_ci.py` |
 | [anti_hack](./anti_hack/) | FlagGems 反作弊检查，检测 bypass dual-execution 模式 | 参考模块，见 `./anti_hack/README.md` |
 | [proxy](./proxy/) | HTTP/1.1 流式反向代理，解决中转 API HTTP/2 流式断连问题 | `python3 ./proxy/proxy.py` |
-| [skills](./skills/) | Agent skills 集合：FlagGems 算子 PR 提交流程、编译器 Pass 驱动的算子源码层优化流程 | `./skills/flaggems-pr-submit/SKILL.md`、`./skills/flaggems-pass-opt/SKILL.md` |
+| [skills](./skills/) | Agent skills 集合：FlagGems 算子 PR 提交流程（NVIDIA 通用 + 摩尔线程特化）、编译器 Pass 驱动的算子源码层优化流程 | `./skills/flaggems-pr-submit/SKILL.md`、`./skills/flaggems-pr-submit-mthreads/SKILL.md`、`./skills/flaggems-pass-opt/SKILL.md` |
 
 ## 快速开始
 

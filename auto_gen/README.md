@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 🔄 **全自动流程**：代码生成 → 编译 → 测试 → 验证
-- 🎯 **多硬件后端**：支持 CUDA、MetaX（沐曦）、Iluvatar（天数）、Enflame（燧原）
+- 🎯 **多硬件后端**：支持 CUDA、MetaX（沐曦）、Iluvatar（天数）、Enflame（燧原）、Moore Threads（摩尔线程）
 - 🔧 **智能调度**：GPU 资源锁管理，支持 8 卡并行
 - 📊 **详细追踪**：执行日志、JSONL 对话记录、时间线统计
 - 🔁 **自动重试**：失败自动重试，可配置重试次数
@@ -317,7 +317,7 @@ python3 fix_worktree_import.py --pytest tests/test_xxx.py -m <op> -vs
 
 ## 实现文档
 
-后端实现细节散落在 `templates/generate_op_*.md` 各模板内（MetaX / Iluvatar / Enflame），无单独 changelog 文件。
+后端实现细节散落在 `templates/generate_op_*.md` 各模板内（MetaX / Iluvatar / Enflame / Moore Threads），无单独 changelog 文件。
 
 ## 注意事项
 
@@ -338,7 +338,7 @@ python3 fix_worktree_import.py --pytest tests/test_xxx.py -m <op> -vs
 
 欢迎提交 Issue 和 Pull Request！
 
-- 新增硬件后端：参考现有 `templates/generate_op_*.md` 的结构，按 MetaX / Iluvatar / Enflame 的模式扩展
+- 新增硬件后端：参考现有 `templates/generate_op_*.md` 的结构，按 MetaX / Iluvatar / Enflame / Moore Threads 的模式扩展
 - 优化 prompt 模板：修改 `templates/` 下的模板文件
 - 改进调度算法：修改 `device_manager.py`
 

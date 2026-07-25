@@ -5,8 +5,7 @@ FlagGems **摩尔线程(Moore Threads/MUSA)** 特化算子 PR 提交 skill，用
 运行时由 `runtime.replace_customized_ops()` 自动替换，因此本 skill 复用上游已有的测试/benchmark
 验证，通常只提交 **2 个文件**（kernel + `_mthreads/ops/__init__.py`）。
 
-它是 `flaggems-pr-submit`（NVIDIA 通用）和 `flaggems-pr-submit-ascend`（昇腾特化）的姊妹 skill，
-针对摩尔线程后端的差异做了适配。
+它是 `flaggems-pr-submit`（NVIDIA 通用）的姊妹 skill，针对摩尔线程后端的差异做了适配。
 
 ## 与其他 skill 的关键差异
 
