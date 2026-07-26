@@ -67,7 +67,7 @@ def parse_benchmark_output(text):
     return rows
 
 
-def format_table(rows):
+def format_table(rows, op=None):
     if not rows:
         return "No benchmark data parsed. 确认 benchmark 以 `-s` 运行且有 SUCCESS 行。"
 
@@ -96,12 +96,14 @@ def format_table(rows):
     gm = geometric_mean(r["speedup"] for r in rows)
     if gm:
         lines.append("")
-        lines.append(f"**Geometric Mean Speedup: {gm:.2f}x**")
+        lines.append("| Operator | Geometric Mean Speedup |")
+        lines.append("|----------|------------------------|")
+        lines.append(f"| {op or 'N/A'} | **{gm:.2f}x** |")
     return "\n".join(lines)
 
 
 def format_full_pr(op, rows, notes):
-    table = format_table(rows)
+    table = format_table(rows, op)
     desc = op.replace("_", " ")
     body = f"""# [KernelGen][MThreads] Add {op} Moore Threads specialized operator
 
@@ -152,7 +154,7 @@ def main():
     if args.full:
         print(format_full_pr(args.op, rows, args.notes))
     else:
-        print(format_table(rows))
+        print(format_table(rows, args.op))
 
 
 if __name__ == "__main__":

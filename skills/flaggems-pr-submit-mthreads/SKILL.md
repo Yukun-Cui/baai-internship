@@ -289,7 +289,9 @@ Compared against the generic FlagGems implementation on Moore Threads (MUSA).
 |---|---|---|---|---|
 | ... | ... | ... | ... | ...x |
 
-**Geometric Mean Speedup: <value>x**
+| Operator | Geometric Mean Speedup |
+|----------|------------------------|
+| <op> | **<value>x** |
 
 ## Files Changed
 - `src/flag_gems/runtime/backend/_mthreads/ops/<op>.py`: Moore Threads Triton kernel + fallback
