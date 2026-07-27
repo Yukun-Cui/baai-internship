@@ -26,11 +26,6 @@ batch_pr_submit/config.env
 # Auto-Gen specific exclusions
 auto_gen/results/
 auto_gen/*.txt
-!auto_gen/ops_list.txt
-!auto_gen/ops_list_enflame.txt
-!auto_gen/ops_list_metax.txt
-!auto_gen/ops_list_iluvatar.txt
-!auto_gen/ops_list_mthreads.txt
 
 # batch_pr_submit runtime artifacts (operator lists, status, per-run outputs)
 batch_pr_submit/operators_*.txt
