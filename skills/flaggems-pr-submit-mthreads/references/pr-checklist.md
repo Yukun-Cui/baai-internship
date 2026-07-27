@@ -14,8 +14,10 @@
 
 - [ ] `src/flag_gems/runtime/backend/_mthreads/ops/<op>.py` — kernel 实现文件
 - [ ] `src/flag_gems/runtime/backend/_mthreads/ops/__init__.py` — 添加 import + `__all__`（字母序）
-- [ ] `tests/test_<op>.py` — **复用上游已有，不提交**（仅当上游缺失才新建并提交）
-- [ ] `benchmark/test_<op>.py` — **复用上游已有，不提交**
+- [ ] `tests/test_<op>.py` — **复用上游已有，不提交**（仅当上游缺失、或需 fp64 门控才提交）
+- [ ] `benchmark/test_<op>.py` — **复用上游已有，不提交**（同上，fp64 门控除外）
+- [ ] `grep -nE "torch\.float64|torch\.double" tests/test_<op>.py benchmark/test_<op>.py` —
+      命中的硬编码 fp64 已改为 `fp64_is_supported` 条件门控 / `skipif`（不删分支）；无命中则不动
 - [ ] **不改** `conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/`
 
 ## Kernel 代码规范
@@ -45,6 +47,7 @@
 
 - [ ] worktree 中用 `fix_worktree_import.py` 跑通精度测试（复用 `tests/test_<op>.py`）
 - [ ] 测试输出中出现 `GEMS_MTHREADS <OP>` DEBUG 日志（证明特化被替换）
+- [ ] 测试/benchmark 无 fp64 用例被执行（硬编码 fp64 已门控；共享常量自动跳过）
 - [ ] benchmark 获取实测加速比（特化不能比通用差）
 - [ ] `MUSA_VISIBLE_DEVICES` 指定空闲卡（先 `mthreads-gmi` 查看）
 

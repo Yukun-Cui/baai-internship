@@ -26,6 +26,34 @@
 - 或用 `_SUPPORTED_DTYPES` 白名单过滤，不支持的 dtype 回退通用实现
 - 通用测试 `tests/test_<op>.py` 若含 fp64 参数，应通过 fallback 正确处理，而非报错
 
+### 3.1 跳过 fp64 测试（精度 + 性能测试）
+
+即便 kernel 有 fallback，测试/benchmark 仍会**真的构造 fp64 输入去跑**，在摩尔线程上属于
+无意义甚至报错的用例。处理原则：
+
+- **共享 dtype 常量的用例无需改动** — `utils.FLOAT_DTYPES`、`utils.ALL_FLOAT_DTYPES`、
+  `consts.FLOAT_DTYPES` 内部已按 `fp64_is_supported` 过滤，摩尔线程上自动不含 fp64
+- **只有硬编码 `torch.float64` / `torch.double` 会漏测** — 先排查：
+  ```bash
+  grep -nE "torch\.float64|torch\.double" tests/test_<op>.py benchmark/test_<op>.py
+  ```
+- 命中时**按 `fp64_is_supported` 条件门控**（参考 `benchmark/test_to_copy.py`），**不要删除 fp64
+  分支**——否则会破坏支持 fp64 的后端（如 NVIDIA）：
+  ```python
+  fp64_is_supported = flag_gems.runtime.device.support_fp64   # accuracy 测试可用 utils.fp64_is_supported
+
+  # 参数化列表
+  _DTYPES = [torch.float32] + ([torch.float64] if fp64_is_supported else [])
+  @pytest.mark.parametrize("dtype", _DTYPES)
+
+  # benchmark 的 dtypes=
+  dtypes=[torch.float32] + ([torch.float64] if fp64_is_supported else []),
+
+  # 专测 fp64 的独立用例
+  @pytest.mark.skipif(not fp64_is_supported, reason="Moore Threads does not support fp64")
+  ```
+- 这是**唯一允许修改上游 test/benchmark 的情形**（见 §7），改后该文件成为 PR 提交项
+
 ## 4. libdevice 兼容性（重要）
 
 - **禁止** `tl.extra.cuda.libdevice.xxx` — MUSA 上不存在，会崩溃
@@ -66,7 +94,9 @@
 ## 7. 复用上游测试/benchmark
 
 - 摩尔线程特化验证用的是通用层**已有**的 `tests/test_<op>.py` / `benchmark/test_<op>.py`
-- **禁止修改这些文件**（会破坏其他后端的测试）
+- **默认禁止修改这些文件**（会破坏其他后端的测试）
+- **唯一例外**：硬编码 fp64 的用例按 §3.1 改为 `fp64_is_supported` 条件门控 / `skipif`
+  （不是删除），让摩尔线程跳过 fp64 而其他后端不受影响；改后该文件成为提交项
 - 只有上游确实缺失独立测试文件时才新建（参考 `tests/test_relu.py`），此时才作为提交项
 - 不改 `conf/operators.yaml`（通用算子已有条目）
 

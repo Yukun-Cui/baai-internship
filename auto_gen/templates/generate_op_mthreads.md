@@ -272,6 +272,63 @@ ls {{WORK_DIR}}/tests/test_{{OPERATOR}}.py
   并为每个变体加 `@pytest.mark.<变体名>`。对精确运算（如 floor, round）用
   `utils.gems_assert_equal` 而非 `utils.gems_assert_close`。
 
+### Step 5.5: 跳过 fp64 测试（摩尔线程不支持 fp64）⚠️
+
+摩尔线程硬件不支持 fp64（`fp64_enabled=False`）。复用的 `tests/test_{{OPERATOR}}.py` 和
+`benchmark/test_{{OPERATOR}}.py` 中，凡是**使用共享 dtype 常量**（`utils.FLOAT_DTYPES`、
+`utils.ALL_FLOAT_DTYPES`、`consts.FLOAT_DTYPES` 等）的用例已经由框架自动跳过 fp64，**无需改动**——
+这些常量内部已按 `fp64_is_supported` 过滤。
+
+真正会在摩尔线程上误测 fp64 的，只有**硬编码** `torch.float64` / `torch.double` 的用例，例如：
+
+```python
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])   # 硬编码 fp64
+```
+
+先检查该算子的测试/benchmark 是否硬编码了 fp64：
+
+```bash
+grep -nE "torch\.float64|torch\.double" tests/test_{{OPERATOR}}.py benchmark/test_{{OPERATOR}}.py
+```
+
+**如果没有命中，跳过本步骤**（说明已由共享常量正确处理，不要改任何文件）。
+
+**如果命中**，按框架既有做法（参考 `benchmark/test_to_copy.py`）把硬编码 fp64 改为
+**按 `fp64_is_supported` 条件门控**，而不是直接删除——这样 fp64 后端（如 NVIDIA）仍会测 fp64，
+摩尔线程上自动跳过，**不会破坏其他后端**：
+
+1. 在文件顶部（`import flag_gems` 后）确保有：
+   ```python
+   fp64_is_supported = flag_gems.runtime.device.support_fp64
+   ```
+   （accuracy 测试里也可直接用已导入的 `utils.fp64_is_supported`，无需重复定义。）
+
+2. **参数化列表**里的硬编码 fp64 改为条件构造：
+   ```python
+   # 改前
+   @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+   # 改后
+   _DTYPES = [torch.float32] + ([torch.float64] if fp64_is_supported else [])
+   @pytest.mark.parametrize("dtype", _DTYPES)
+   ```
+
+3. **benchmark 的 `dtypes=[...]`** 同理条件构造：
+   ```python
+   dtypes=[torch.float32] + ([torch.float64] if fp64_is_supported else []),
+   ```
+
+4. **专门测 fp64 的独立用例**（如 `test_<op>_float64_xxx`）加 skip 守卫：
+   ```python
+   @pytest.mark.skipif(
+       not fp64_is_supported,
+       reason="Moore Threads hardware does not support fp64",
+   )
+   ```
+
+> ⚠️ **只允许这一种改动**：把硬编码 fp64 改成条件门控 / skipif。**禁止**删除 fp64 分支、
+> 改动非 fp64 的用例、或改动测试逻辑本身。改动后 `tests/test_{{OPERATOR}}.py` /
+> `benchmark/test_{{OPERATOR}}.py` 就成为本 PR 的提交项（见 Step 7.5）。
+
 ### Step 6: 运行 accuracy 测试
 
 **必须在工作目录 `{{WORK_DIR}}` 下运行**。
@@ -336,7 +393,9 @@ SUCCESS    ...
 ### Step 7.5: 提交代码
 
 **当 accuracy 测试通过、benchmark 也已运行后**，将改动一次性提交到当前 worktree 的分支。
-摩尔线程特化通常**只改**特化实现和其注册文件（不动通用层、不写新测试）：
+摩尔线程特化通常**只改**特化实现和其注册文件（不动通用层、不写新测试）；
+**唯一例外**是 Step 5.5 里为跳过 fp64 而门控的 `tests/test_{{OPERATOR}}.py` /
+`benchmark/test_{{OPERATOR}}.py`——若确有此改动，一并提交：
 
 ```bash
 cd {{WORK_DIR}}
@@ -393,7 +452,7 @@ AI 署名或生成标记，包括但不限于 `Co-Authored-By: Claude ...`、`Ge
 
 1. **正确性优先**：必须通过 accuracy 测试
 2. **代码风格**：严格遵循摩尔线程已有算子代码风格
-3. **复用已有测试**：特化算子覆盖的是通用层已有算子，优先复用已存在的 `tests/test_{{OPERATOR}}.py` 和 `benchmark/test_{{OPERATOR}}.py`，不新写测试；仅当独立测试文件确实缺失时才参考 `test_relu.py` 新建
+3. **复用已有测试**：特化算子覆盖的是通用层已有算子，优先复用已存在的 `tests/test_{{OPERATOR}}.py` 和 `benchmark/test_{{OPERATOR}}.py`，不新写测试；仅当独立测试文件确实缺失时才参考 `test_relu.py` 新建。**唯一允许的修改**是 Step 5.5 的 fp64 门控（硬编码 `torch.float64` → `fp64_is_supported` 条件 / `skipif`）
 4. **跨后端兼容**：禁止直接调用 `tl.extra.cuda.libdevice`，必须使用 `tl_extra_shim` 或 Triton 内置函数
 5. **字母顺序**：所有注册必须严格按字母顺序插入
 6. **最终代码保留**：无论成功失败，都保留修改的代码在 worktree 中
@@ -403,3 +462,6 @@ AI 署名或生成标记，包括但不限于 `Co-Authored-By: Claude ...`、`Ge
 10. **工作目录**：所有命令必须在 `{{WORK_DIR}}` 下执行
 11. **禁止写临时文件**：不要将测试或代码写到 `/tmp` 或其他临时目录
 12. **fp64/int64 不支持**：摩尔线程硬件不支持双精度/长整型，kernel 内统一用 fp32/int32 计算
+13. **跳过 fp64 测试**：复用的测试/benchmark 若**硬编码** `torch.float64`，按 Step 5.5
+    改为 `fp64_is_supported` 条件门控 / `skipif`（不是删除），使摩尔线程跳过 fp64 而不破坏其他后端；
+    用共享 dtype 常量（`utils.FLOAT_DTYPES` 等）的用例已由框架自动跳过，不要改动

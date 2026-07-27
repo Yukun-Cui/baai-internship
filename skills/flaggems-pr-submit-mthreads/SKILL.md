@@ -69,21 +69,34 @@ description and speedup data).
     (`src/flag_gems/ops/`)、`_FULL_CONFIG`、`conf/operators.yaml`、其他 backend
 12. **注册按字母序** — `_mthreads/ops/__init__.py` 的 import 和 `__all__` 都按字母序插入
 13. **不导出 triton kernel** — `__all__` 和 `__init__.py` 只导出 wrapper 函数，不导出 `@triton.jit` kernel
-14. **复用上游测试/benchmark，不新写不修改** — 摩尔线程特化验证用的是通用层已有的
-    `tests/test_<op>.py` 和 `benchmark/test_<op>.py`。**禁止修改它们**（改了会破坏其他后端）。
-    仅当上游确实缺少独立测试文件时，才参考 `tests/test_relu.py` 新建（此时该文件成为提交项）
-15. **每个 PR 只包含一个算子的特化** — 提交前运行 `git diff --name-only upstream/master..HEAD`
+14. **复用上游测试/benchmark，原则上不新写不修改** — 摩尔线程特化验证用的是通用层已有的
+    `tests/test_<op>.py` 和 `benchmark/test_<op>.py`。**默认禁止修改它们**（改了会破坏其他后端）。
+    仅当上游确实缺少独立测试文件时，才参考 `tests/test_relu.py` 新建（此时该文件成为提交项）。
+    **唯一允许的修改**：测试/benchmark **硬编码** `torch.float64` 时，按第 15 条把它改成
+    `fp64_is_supported` 条件门控（不是删除），让摩尔线程跳过 fp64 而其他后端不受影响
+15. **跳过 fp64 测试（摩尔线程不支持 fp64）** — 硬件 `fp64_enabled=False`，fp64 用例会误测。
+    - 用共享 dtype 常量（`utils.FLOAT_DTYPES`、`utils.ALL_FLOAT_DTYPES`、`consts.FLOAT_DTYPES` 等）
+      的用例**已由框架按 `fp64_is_supported` 自动跳过 fp64**，不要改动
+    - 只有**硬编码** `torch.float64` / `torch.double` 的用例才会漏测；先
+      `grep -nE "torch\.float64|torch\.double" tests/test_<op>.py benchmark/test_<op>.py` 排查
+    - 命中时按框架既有做法（参考 `benchmark/test_to_copy.py`）**条件门控**，不删分支：
+      参数化 `[torch.float32] + ([torch.float64] if fp64_is_supported else [])`；
+      benchmark `dtypes=[...] + ([torch.float64] if fp64_is_supported else [])`；
+      专测 fp64 的独立用例加 `@pytest.mark.skipif(not fp64_is_supported, reason="...fp64")`
+    - `fp64_is_supported = flag_gems.runtime.device.support_fp64`（accuracy 测试可用
+      `utils.fp64_is_supported`）。改后这些文件成为本 PR 提交项
+16. **每个 PR 只包含一个算子的特化** — 提交前运行 `git diff --name-only upstream/master..HEAD`
     确认没有混入其他算子文件
-16. **PR 描述用英文** — 遵循下方 PR Description 模板，全部用英文撰写
-17. **禁止 AI 署名 / Co-Authored-By** — commit message 和 PR body 中不得包含 `Co-authored-by`、
+17. **PR 描述用英文** — 遵循下方 PR Description 模板，全部用英文撰写
+18. **禁止 AI 署名 / Co-Authored-By** — commit message 和 PR body 中不得包含 `Co-authored-by`、
     `Generated-by`、`Generated with`、🤖 或任何 AI 署名，否则 CLA CI 不过
-18. **提交前必须验证特化被调用** — 测试输出中必须出现 `GEMS_MTHREADS <OP>` 的 DEBUG 日志，
+19. **提交前必须验证特化被调用** — 测试输出中必须出现 `GEMS_MTHREADS <OP>` 的 DEBUG 日志，
     证明 `runtime.replace_customized_ops()` 正确替换了通用实现。没出现说明 Rule 12 注册有问题
-19. **提交前在 worktree 测试并获取加速比** — 特化实现**至少不能比通用实现差**。PR 描述 Performance
+20. **提交前在 worktree 测试并获取加速比** — 特化实现**至少不能比通用实现差**。PR 描述 Performance
     表格必须填入实测加速比
-20. **block_size 等超参优先用 `@triton.autotune`** — 参考 `celu.py` 的 autotune 配置。hardcode 需注释说明
-21. **使用规范命名 + 回填 PR 链接** — 提交前 `operator_registry.py lookup`，PR 创建后 `backfill`
-22. **所有异常记录到 pr状态记录.md** — 包括本地通过但 CI 不过、hardcode 超参、加速比偏低等
+21. **block_size 等超参优先用 `@triton.autotune`** — 参考 `celu.py` 的 autotune 配置。hardcode 需注释说明
+22. **使用规范命名 + 回填 PR 链接** — 提交前 `operator_registry.py lookup`，PR 创建后 `backfill`
+23. **所有异常记录到 pr状态记录.md** — 包括本地通过但 CI 不过、hardcode 超参、加速比偏低等
 
 ## Data Sources
 
@@ -145,6 +158,11 @@ cd /root/FlagGems/.worktrees/gen-<op>
 
 # 用空闲 MUSA 卡（先 mthreads-gmi 检查）
 GPU=<空闲卡号>
+
+# 0. 排查测试/benchmark 是否硬编码 fp64（摩尔线程不支持，见 Rule 15）
+grep -nE "torch\.float64|torch\.double" tests/test_<op>.py benchmark/test_<op>.py
+#   命中 → 按 Rule 15 改成 fp64_is_supported 条件门控 / skipif（不删分支）后再往下跑
+#   无命中 → 共享 dtype 常量已自动跳过 fp64，不改任何文件
 
 # 1. 精度测试（必须全部 PASS，且输出中必须出现 GEMS_MTHREADS <OP> DEBUG 日志）
 MUSA_VISIBLE_DEVICES=$GPU python3 /root/baai-internship/auto_gen/fix_worktree_import.py \
@@ -213,9 +231,12 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/prepare_
 
 #### 2.3 Test / Benchmark（复用，通常不提交）
 
-- 上游已有 `tests/test_<op>.py` / `benchmark/test_<op>.py` → **不动，仅用于验证**
+- 上游已有 `tests/test_<op>.py` / `benchmark/test_<op>.py` → **原则上不动，仅用于验证**
 - 仅当上游确实缺失独立测试时才新建（参考 `tests/test_relu.py`，用
   `from . import accuracy_utils as utils`，加 `@pytest.mark.<op>`），此时它成为提交项
+- **例外：硬编码 fp64 需门控**（见 Rule 15）。若测试/benchmark 硬编码了 `torch.float64` /
+  `torch.double`，按 `fp64_is_supported` 条件门控 / `skipif`（不删分支），让摩尔线程跳过
+  fp64、其他后端不受影响；改后该文件成为提交项。用共享 dtype 常量的用例已自动跳过，不改
 
 ### Phase 3: Automated Validation
 
@@ -314,11 +335,13 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 
 1. **设备判定 `"musa"`** — 不是 `"cuda"`；用 `x.device.type == "musa"` 决定走特化
 2. **fallback 完整** — 所有不满足特化条件的分支都回退 `default_<op>`，不能崩溃或算错
-3. **fp64/int64 处理** — 白名单过滤或 kernel 内转 fp32/int32；测试若含 fp64 应走 fallback 而非报错
+3. **fp64/int64 处理** — 白名单过滤或 kernel 内转 fp32/int32；测试/benchmark 硬编码的 fp64 已按
+   `fp64_is_supported` 门控（不删分支），共享 dtype 常量的用例自动跳过（见 Rule 15）
 4. **Logger 命名 + `GEMS_MTHREADS` 文案** — logger 用 `getLogger(f'flag_gems.runtime.backend._mthreads.ops.{__name__.split(".")[-1]}')`
    （非 `__name__`）；`logger.debug("GEMS_MTHREADS <OP>")` 是 wrapper 第一条语句，测试中确实打印出来（证明被替换）
 5. **`tl_extra_shim` 而非 libdevice** — `tl.extra.cuda.libdevice` 在 MUSA 上会崩溃
-6. **只改 2 个文件** — `git diff --name-only` 确认没碰通用层 / yaml / 其他 backend
+6. **只改 2 个文件（fp64 门控除外）** — `git diff --name-only` 确认没碰通用层 / yaml / 其他 backend；
+   若为跳过 fp64 门控了 `tests/` / `benchmark/` 文件，允许多出这些文件
 7. **device_capability 分区** — BLAS 类算子注册在 `capability[0] >= 3` 块内
 8. **不导出 triton kernel** — `__all__` 只含 wrapper
 9. **autotune** — 超参用 `@triton.autotune`，hardcode 需注释
