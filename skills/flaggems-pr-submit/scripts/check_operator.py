@@ -845,32 +845,32 @@ class OperatorChecker:
     def check_upstream_conflict(self):
         section("上游冲突检查")
         upstream_ref = subprocess.run(
-            ["git", "rev-parse", "--verify", "upstream/master"],
+            ["git", "rev-parse", "--verify", "upstream/infra-ci"],
             capture_output=True,
             text=True,
             cwd=self.repo_dir,
         )
         if upstream_ref.returncode != 0:
-            self.errors.append("缺少 upstream/master；请先执行 git fetch upstream master")
-            fail("找不到 upstream/master，无法证明分支无冲突")
+            self.errors.append("缺少 upstream/infra-ci；请先执行 git fetch upstream master")
+            fail("找不到 upstream/infra-ci，无法证明分支无冲突")
             return
 
         try:
             result = subprocess.run(
-                ["git", "show", f"upstream/master:src/flag_gems/ops/{self.op_name}.py"],
+                ["git", "show", f"upstream/infra-ci:src/flag_gems/ops/{self.op_name}.py"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
             )
             if result.returncode == 0:
-                self.errors.append(f"算子 {self.op_name} 已存在于上游 upstream/master")
+                self.errors.append(f"算子 {self.op_name} 已存在于上游 upstream/infra-ci")
                 fail(f"算子已存在于上游! 不应提交此 PR")
                 return
         except FileNotFoundError:
             pass
 
         merge_tree = subprocess.run(
-            ["git", "merge-tree", "--write-tree", "HEAD", "upstream/master"],
+            ["git", "merge-tree", "--write-tree", "HEAD", "upstream/infra-ci"],
             capture_output=True,
             text=True,
             cwd=self.repo_dir,
@@ -878,24 +878,24 @@ class OperatorChecker:
         if merge_tree.returncode != 0:
             output = (merge_tree.stdout + "\n" + merge_tree.stderr).strip()
             self.errors.append(
-                "当前分支与 upstream/master 存在 merge conflict；请基于最新 upstream/master 重新创建分支"
+                "当前分支与 upstream/infra-ci 存在 merge conflict；请基于最新 upstream/infra-ci 重新创建分支"
             )
-            fail("当前分支无法与 upstream/master 无冲突合并")
+            fail("当前分支无法与 upstream/infra-ci 无冲突合并")
             if output:
                 print(output[:2000])
             return
 
-        ok(f"算子 {self.op_name} 未在上游发现冲突，且当前分支可与 upstream/master 无冲突合并")
+        ok(f"算子 {self.op_name} 未在上游发现冲突，且当前分支可与 upstream/infra-ci 无冲突合并")
 
     def check_git_commit_message(self):
         section("Git Commit 检查")
         try:
-            # Two-dot range: only commits reachable from HEAD but not upstream/master
+            # Two-dot range: only commits reachable from HEAD but not upstream/infra-ci
             # (i.e. this branch's own commits). Three-dot symmetric difference with -1
             # would sort by date and could pick a newer upstream commit whose message
             # legitimately carries human Co-authored-by trailers, causing a false positive.
             result = subprocess.run(
-                ["git", "log", "upstream/master..HEAD", "--format=%B"],
+                ["git", "log", "upstream/infra-ci..HEAD", "--format=%B"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
@@ -1147,7 +1147,7 @@ class OperatorChecker:
         section("单算子 PR 检查")
         try:
             result = subprocess.run(
-                ["git", "diff", "--name-only", "upstream/master...HEAD"],
+                ["git", "diff", "--name-only", "upstream/infra-ci...HEAD"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,

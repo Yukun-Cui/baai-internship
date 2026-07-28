@@ -64,7 +64,7 @@ description: >
 48. **autotune 配置优先外置** — 不在 kernel 文件写大段 inline `triton.Config(...)`；Nvidia 通用配置放 `_nvidia/tune_configs.yaml`
 49. **yaml 长文案要可读** — `description` 等长文本用 block scalar 或合理换行，不提交超过 120 字符的单行描述
 50. **必须证明真实 dispatch 路径被测到** — public API 可能绕过 FlagGems 时，加直接 wrapper/`torch.ops.aten` 测试；autograd 实现要有 backward smoke
-51. **新提交分支必须新鲜且无冲突** — push 或请求 review 前 fetch upstream，并通过 `check_operator.py` 的上游冲突检查，证明当前分支可与 `upstream/master` 无冲突合并
+51. **新提交分支必须新鲜且无冲突** — push 或请求 review 前 fetch upstream，并通过 `check_operator.py` 的上游冲突检查，证明当前分支可与 `upstream/infra-ci` 无冲突合并
 52. **Performance 描述必须清晰分组** — PR body 的 Performance 按 operator/variant 分 `###` 小节，表格包含 `dtype`、`Size`、Torch/Gems latency、Speedup；benchmark 输出含 TFLOPS 时必须记录 `TFLOPS` 列；每个 variant 单独给 Geometric Mean Speedup（加速比是比率数据，用几何平均）
 53. **backend 特化仅在需要时触发额外校验** — 只有当 PR 明确包含 `src/flag_gems/runtime/backend/**` 变更，或用户明确标注 `(muxi特化)` / `(tianshu特化)` 等 backend 特化时，才执行 backend specialization gate；普通算子不得被额外 backend 规则干扰
 
@@ -72,8 +72,8 @@ description: >
 
 以下规则用于减少 reviewer churn；它们不替代上面的提交门禁，只约束普通 operator PR 的 diff、文案和 reviewer 可见代码形态。
 
-1. **禁止污染全局 infra 文件** — 普通算子 PR 不得修改 `tools/vendor.sh`、`setup.sh`、`tools/env.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 或全局依赖 pin。若 CI 在安装依赖、checkout、环境初始化阶段失败，先归类为 upstream/infra 环境问题并等待或基于最新 `upstream/master` 重建干净分支；不要在算子 PR 中改依赖绕过。
-2. **PR diff 必须保持 operator-scoped** — push 后或请求 review 前运行 `gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only`。允许文件通常只有 `src/flag_gems/ops/<op>.py`、`tests/test_<op>.py`、`benchmark/test_<op>.py`、`conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/__init__.py`；仅当当前算子确实需要时，允许 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml` 或 `benchmark/core_shapes.yaml`。若出现非预期文件，重新基于最新 `upstream/master` 创建干净分支并重新提取/提交，不用 rebase 或 infra patch 掩盖。
+1. **禁止污染全局 infra 文件** — 普通算子 PR 不得修改 `tools/vendor.sh`、`setup.sh`、`tools/env.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 或全局依赖 pin。若 CI 在安装依赖、checkout、环境初始化阶段失败，先归类为 upstream/infra 环境问题并等待或基于最新 `upstream/infra-ci` 重建干净分支；不要在算子 PR 中改依赖绕过。
+2. **PR diff 必须保持 operator-scoped** — push 后或请求 review 前运行 `gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only`。允许文件通常只有 `src/flag_gems/ops/<op>.py`、`tests/test_<op>.py`、`benchmark/test_<op>.py`、`conf/operators.yaml`、`src/flag_gems/__init__.py`、`src/flag_gems/ops/__init__.py`；仅当当前算子确实需要时，允许 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml` 或 `benchmark/core_shapes.yaml`。若出现非预期文件，重新基于最新 `upstream/infra-ci` 创建干净分支并重新提取/提交，不用 rebase 或 infra patch 掩盖。
 3. **logger 位置必须 reviewer 友好** — public wrapper 的 `logger.debug("GEMS <OP>")` 应是 docstring 后第一条有意义语句，先于输入检查、shape normalization、dtype cast 等逻辑。message 继续遵循 Rule 47 的 uppercase underscore 格式；确有例外时必须能用 sibling precedent 解释。
 4. **Benchmark class 保持 module-scoped** — `benchmark/test_<op>.py` 中自定义 benchmark class 必须定义在模块顶层，`test_<op>()` 只负责实例化并 `run()`。不得在 pytest test function 内定义 class。
 5. **禁止空壳 benchmark override** — 不保留只调用 `super().set_shapes(...)` / `super().set_more_shapes(...)` 且不改变行为的 override；只有实际改变 shapes、输入构造或 benchmark 行为时才覆盖。
@@ -160,7 +160,7 @@ python scripts/extract_from_worktree.py CrossAttention \
 
 ### Backend Specialization Gate（仅当 PR 包含 backend 特化时）
 
-如果 `git diff --name-only upstream/master...HEAD` 包含 `src/flag_gems/runtime/backend/**`，或任务明确要求特化 backend，则额外执行以下检查；否则跳过。
+如果 `git diff --name-only upstream/infra-ci...HEAD` 包含 `src/flag_gems/runtime/backend/**`，或任务明确要求特化 backend，则额外执行以下检查；否则跳过。
 
 #### 触发条件
 
@@ -212,11 +212,11 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry
 ### Phase 1: Preparation
 ```bash
 cd /root/FlagGems
-git checkout -b pr/<op> upstream/master
+git checkout -b pr/<op> upstream/infra-ci
 ```
 确认算子不存在于上游。
 ❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，cherry-pick 容易带入旧基线并造成 PR merge conflict。
-❌ **禁止 rebase** — 分支基于 upstream/master 创建，不需要 rebase。
+❌ **禁止 rebase** — 分支基于 upstream/infra-ci 创建，不需要 rebase。
 
 ### Phase 2: Extract Code（一步完成，禁止手动编写）
 ```bash
@@ -238,7 +238,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
 **任何正确性/注册/测试/benchmark 可运行性步骤失败立即中断退出。不允许手动执行单独步骤来绕过。低于 speedup 阈值只记录 warning，不中断。**
 
 ❌ **禁止手动创建 PR** — 不允许直接调用 `gh pr create` / `gh pr edit` / `gh pr merge`；创建 PR 和 PR body 必须由 `submit_operator.py` 完成。
-❌ **禁止删除上游已有实现文件** — 如果独立提交当前算子需要删除/重命名 upstream/master 已存在的实现、测试或 benchmark，必须报告 BLOCKED，不得自行“修复”为大重构。
+❌ **禁止删除上游已有实现文件** — 如果独立提交当前算子需要删除/重命名 upstream/infra-ci 已存在的实现、测试或 benchmark，必须报告 BLOCKED，不得自行“修复”为大重构。
 ❌ **禁止修改上游已有测试/benchmark 函数** — 当前算子只能新增或迁移本算子必要文件；遇到已有测试结构冲突时报告 BLOCKED。
 ❌ **禁止跳过测试** — 测试失败说明代码有问题，必须修复后重新提交。
 ❌ **禁止跳过 benchmark** — 无性能数据的 PR 不提交。benchmark 失败时修复代码或放弃该算子；benchmark 跑通但 speedup 低于阈值允许提交，只在日志和 PR 描述中如实展示。
@@ -327,8 +327,8 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
   - 判断方法：算子名包含 `rand`/`bernoulli`/`dropout`/`normal`/`poisson`/`multinomial` → 必须用统计验证
   - 统计验证 = 检查 `mean ≈ expected_p` 且 `var ≈ expected_var`，不是 `gems_assert_close`
 - [ ] **Rule 34 先通用后特化** — 特化版本是否依赖尚未 merge 的通用版？
-  - 判断方法：如果算子名含 `.out`/`.Tensor`/`.Scalar`/`_`(inplace) 后缀，检查基础版是否已在 upstream/master 中
-  - 检查命令：`git show upstream/master:src/flag_gems/ops/<base_op>.py`
+  - 判断方法：如果算子名含 `.out`/`.Tensor`/`.Scalar`/`_`(inplace) 后缀，检查基础版是否已在 upstream/infra-ci 中
+  - 检查命令：`git show upstream/infra-ci:src/flag_gems/ops/<base_op>.py`
   - 如果基础版未 merge，先提交基础版
 - [ ] **yaml kind 选择** — 算子类别是否正确？resize/clone/view → Tensor，softmax/relu → NeuralNetwork，sum/mean → Reduction，matmul → BLAS
   - 默认 Math 只适用于数学函数，不要对所有算子都写 Math
@@ -349,7 +349,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
   - Nvidia 通用算子配置放 `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml`
   - 必须 inline 时需说明原因并对照 repo 现有例外模式
 - [ ] **分支新鲜度** — push 或请求 review 前是否 `git fetch upstream`，并让 `check_operator.py` 通过上游冲突检查？
-  - 若上游冲突检查失败，本次新提交必须重新基于最新 `upstream/master` 创建分支并重新提取算子，不能带冲突提交上 PR。
+  - 若上游冲突检查失败，本次新提交必须重新基于最新 `upstream/infra-ci` 创建分支并重新提取算子，不能带冲突提交上 PR。
 
 ## 强制执行策略（模型必须遵守）
 
@@ -376,7 +376,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
 
 - ❌ `git add -A` 或 `git add .` — 687 worktrees 会被误加
 - ❌ `git cherry-pick` — worktree 代码结构与上游不同
-- ❌ `git rebase` — 分支已基于 upstream/master
+- ❌ `git rebase` — 分支已基于 upstream/infra-ci
 - ❌ 任何 AI 署名/协作者署名在 commit message 或 PR body 中 — 包括 `Co-authored-by`、`Co-authored by`、`Generated-by`、`Generated with`、"🤖 Generated with Claude Code" 等，CLA CI 会失败
 - ❌ 手动编写 test/benchmark 代码 — 必须从 worktree 提取
 - ❌ 手动执行 submit_operator.py 的单个步骤来绕过失败

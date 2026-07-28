@@ -163,10 +163,10 @@ def test_reflection_pad3d_list_padding(...):
 
 - ❌ **禁止 `git add -A` 或 `git add .`**（仓库有 687 个 worktree 和大目录）
 - ❌ **禁止 cherry-pick**（worktree 代码结构与上游不同，容易带入旧基线并造成 PR merge conflict）
-- ❌ **禁止 rebase**（分支基于 upstream/master 创建，不需要）
+- ❌ **禁止 rebase**（分支基于 upstream/infra-ci 创建，不需要）
 - 必须逐文件 stage
 - 分支命名统一用 `pr/<operator>`
-- 每个分支基于 `upstream/master` 创建
+- 每个分支基于 `upstream/infra-ci` 创建
 
 
 ## 14. variant / canonical ID 覆盖
@@ -213,8 +213,8 @@ def test_reflection_pad3d_list_padding(...):
 ## 20. 新提交分支冲突预防
 
 - 新算子提交前必须 `git fetch upstream master`。
-- `check_operator.py` 必须通过“上游冲突检查”：当前分支既不能提交上游已存在的算子，也必须能与 `upstream/master` 无冲突合并。
-- 如果上游冲突检查失败，本次新提交必须重新基于最新 `upstream/master` 创建分支并重新提取算子，不能把冲突分支提交成 PR。
+- `check_operator.py` 必须通过“上游冲突检查”：当前分支既不能提交上游已存在的算子，也必须能与 `upstream/infra-ci` 无冲突合并。
+- 如果上游冲突检查失败，本次新提交必须重新基于最新 `upstream/infra-ci` 创建分支并重新提取算子，不能把冲突分支提交成 PR。
 
 ## 21. 普通算子 PR 不改全局 infra
 
@@ -229,7 +229,7 @@ def test_reflection_pad3d_list_padding(...):
 - `pyproject.toml`
 - 全局依赖 pin / build 环境文件
 
-如果 CI 在依赖解析、安装 torch/triton、checkout、容器初始化等阶段失败，先按 upstream/infra 环境问题记录。不要在算子 PR 中改 dependency pin 绕过；应等待 upstream 修复，或基于最新 `upstream/master` 重新创建干净分支并重新提取算子。
+如果 CI 在依赖解析、安装 torch/triton、checkout、容器初始化等阶段失败，先按 upstream/infra 环境问题记录。不要在算子 PR 中改 dependency pin 绕过；应等待 upstream 修复，或基于最新 `upstream/infra-ci` 重新创建干净分支并重新提取算子。
 
 ## 22. PR diff 文件列表必须 reviewer 友好
 
@@ -251,7 +251,7 @@ gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only
 - `src/flag_gems/runtime/backend/_nvidia/tune_configs.yaml`
 - `benchmark/core_shapes.yaml`
 
-如果出现无关文件，不要用 infra patch 掩盖，也不要把无关改动留给 reviewer 解释；重新基于最新 `upstream/master` 创建干净分支并重新提取/提交当前算子。
+如果出现无关文件，不要用 infra patch 掩盖，也不要把无关改动留给 reviewer 解释；重新基于最新 `upstream/infra-ci` 创建干净分支并重新提取/提交当前算子。
 
 ## 23. logger.debug 的位置
 

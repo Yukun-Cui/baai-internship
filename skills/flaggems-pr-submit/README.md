@@ -31,7 +31,7 @@ FlagGems 算子 PR 提交 skill，用于把 KernelGen/worktree 生成的单个�
 ## 核心工作流
 
 1. 查询规范名：`operator_registry.py lookup <op>` 读取 `data/规范名.xlsx` 和 `data/第一批pr算子.xlsx`，获得规范名、已有 PR 链接、加速比和表格行号。
-2. 创建干净分支：基于 `upstream/master` 创建 `pr/<op>` 分支。
+2. 创建干净分支：基于 `upstream/infra-ci` 创建 `pr/<op>` 分支。
 3. 提取代码：`extract_from_worktree.py` 从 `.worktrees/gen-<op>` 提取 kernel、test、benchmark、`ops/__init__.py`、顶层 `__init__.py` 和 `conf/operators.yaml`。
 4. 统一命名：`name_plan.py` 区分 `source_name`、`impl_name`、`canonical_name`，必要时把文件名、wrapper、mark、benchmark `op_name`、yaml 和注册项都机械迁移到规范名。
 5. 提交前门禁：`check_operator.py --strict` 检查注册一致性、yaml 唯一性、命名残留、dtype、benchmark、anti-hack、单算子 PR、上游冲突等。

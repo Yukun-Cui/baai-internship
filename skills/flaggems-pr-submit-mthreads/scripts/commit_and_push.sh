@@ -41,9 +41,9 @@ FILES=(
     "${MTHREADS_OPS}/__init__.py"
 )
 for extra in "tests/test_${OP}.py" "benchmark/test_${OP}.py"; do
-    # 只在该文件相对 upstream/master 有改动时才纳入（新建/修改）
+    # 只在该文件相对 upstream/infra-ci 有改动时才纳入（新建/修改）
     if git status --porcelain "$extra" 2>/dev/null | grep -q .; then
-        if ! git show "upstream/master:${extra}" &>/dev/null; then
+        if ! git show "upstream/infra-ci:${extra}" &>/dev/null; then
             echo "[!] ${extra} 是新建文件（上游无）→ 纳入提交"
             FILES+=("$extra")
         else

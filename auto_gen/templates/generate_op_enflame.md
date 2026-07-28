@@ -45,7 +45,7 @@ cd {{WORK_DIR}}
 
 ## 燧原(Enflame)后端说明
 
-**通用算子**已存在于 `src/flag_gems/ops/` 中（在 master 分支上）。
+**通用算子**已存在于 `src/flag_gems/ops/` 中（在 infra-ci 分支上）。
 
 **燧原特化算子**需要创建在按架构分目录的路径下：`src/flag_gems/runtime/backend/_enflame/{{ARCH}}/ops/`。
 

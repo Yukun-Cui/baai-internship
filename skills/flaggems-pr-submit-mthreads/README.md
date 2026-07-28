@@ -46,7 +46,7 @@ FlagGems **摩尔线程(Moore Threads/MUSA)** 特化算子 PR 提交 skill，用
 ## 核心工作流
 
 1. **Phase 0**：`operator_registry.py lookup <op>` + `preflight.sh <op>` — 查规范名，确认通用算子在上游、特化不在上游。
-2. **Phase 1**：`git fetch upstream` + 基于 `upstream/master` 建分支 `pr/mthreads-<op>`。
+2. **Phase 1**：`git fetch upstream` + 基于 `upstream/infra-ci` 建分支 `pr/mthreads-<op>`。
 3. **Phase 1.5**：在 worktree 中用 `fix_worktree_import.py` 跑精度测试和 benchmark，确认特化被 `replace_customized_ops()` 替换（输出中有 `GEMS_MTHREADS <OP>` 日志）并获取加速比。
 4. **Phase 2**：`prepare_kernel.sh` 复制 kernel + 注册 `__init__.py`（BLAS 类算子注册在 capability≥3 分区）。
 5. **Phase 3**：`check_operator.py --repo-dir` 门禁，0 errors。

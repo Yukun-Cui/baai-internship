@@ -187,7 +187,7 @@ def strip_ai_signature(worktree_path: str, operator: str):
         logger.warning(f"[SIGN] Error stripping AI signature: {e}")
 
 
-def sort_and_amend_commit(worktree_path: str, operator: str, base_branch: str = "master"):
+def sort_and_amend_commit(worktree_path: str, operator: str, base_branch: str = "infra-ci"):
     """Sort operator registrations and amend the commit if changes were needed.
 
     Uses sort_registrations.py (colocated in this directory). Also sorts any
@@ -317,12 +317,13 @@ def render_template(template_path: str, variables: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def create_worktree(
-    flaggems_dir: str, operator: str, branch_prefix: str = "pr/"
+    flaggems_dir: str, operator: str, branch_prefix: str = "pr/", base_branch: str = "infra-ci"
 ) -> tuple[str, str]:
     """Create a git worktree for an operator. Returns (worktree_path, branch_name).
 
     Branch names follow the repo's PR convention (e.g. ``pr/narrow``). The prefix
-    is configurable via ``branch_prefix`` in config.yaml.
+    is configurable via ``branch_prefix`` in config.yaml. The worktree is based on
+    ``base_branch`` (configurable via ``base_branch`` in config.yaml).
     """
     branch_name = f"{branch_prefix}{operator}"
     worktree_path = os.path.join(flaggems_dir, ".worktrees", f"gen-{operator}")
@@ -345,10 +346,10 @@ def create_worktree(
         capture_output=True,
     )
 
-    # Create worktree based on master
+    # Create worktree based on base_branch
     os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
     result = subprocess.run(
-        ["git", "worktree", "add", "-b", branch_name, worktree_path, "master"],
+        ["git", "worktree", "add", "-b", branch_name, worktree_path, base_branch],
         cwd=flaggems_dir,
         capture_output=True,
         text=True,
@@ -909,7 +910,7 @@ def run(args):
     timeout_per_op = config.get("timeout_per_op", 1800) or 0
     poll_interval = config.get("poll_interval", 10)
     python_path = config.get("python_path", sys.executable)
-    base_branch = config.get("base_branch", "master")
+    base_branch = config.get("base_branch", "infra-ci")
     branch_prefix = config.get("branch_prefix", "pr/")
     dry_run = getattr(args, "dry_run", False)
 
@@ -1068,11 +1069,11 @@ def run(args):
                     else:
                         logger.warning(f"[FIXUP] Existing worktree not found for {operator}, creating new one")
                         worktree_path, branch = create_worktree(
-                            flaggems_dir, operator, branch_prefix
+                            flaggems_dir, operator, branch_prefix, base_branch
                         )
                 else:
                     worktree_path, branch = create_worktree(
-                        flaggems_dir, operator, branch_prefix
+                        flaggems_dir, operator, branch_prefix, base_branch
                     )
 
                 # For fixup attempts, append the missing items to the prompt

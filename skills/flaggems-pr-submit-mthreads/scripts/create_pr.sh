@@ -74,7 +74,7 @@ implementation via \`runtime.replace_customized_ops()\`.
 - \`src/flag_gems/runtime/backend/_mthreads/ops/__init__.py\`: Register import and \`__all__\`"
 fi
 
-BASE_BRANCH="master"
+BASE_BRANCH="infra-ci"
 
 if $DRY_RUN; then
     echo "=== DRY RUN: PR Preview ==="

@@ -8,7 +8,7 @@
 gh pr create \
   --repo flagos-ai/FlagGems-Experimental \
   --head Yukun-Cui:pr/<op> \
-  --base master \
+  --base infra-ci \
   --title "[KernelGen][Nvidia] Add <op> operator with Triton kernel" \
   --body "$(cat <<'EOF'
 ## Summary

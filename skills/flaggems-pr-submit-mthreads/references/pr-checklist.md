@@ -5,10 +5,10 @@
 
 ## 前置确认
 
-- [ ] 通用算子已存在上游 — `git show upstream/master:src/flag_gems/ops/<op>.py` 成功
+- [ ] 通用算子已存在上游 — `git show upstream/infra-ci:src/flag_gems/ops/<op>.py` 成功
       （否则先用 `flaggems-pr-submit` 提交通用版）
-- [ ] 摩尔线程特化不存在上游 — `git show upstream/master:src/flag_gems/runtime/backend/_mthreads/ops/<op>.py` 报错
-- [ ] 分支基于 `upstream/master` 创建，命名 `pr/mthreads-<op>`
+- [ ] 摩尔线程特化不存在上游 — `git show upstream/infra-ci:src/flag_gems/runtime/backend/_mthreads/ops/<op>.py` 报错
+- [ ] 分支基于 `upstream/infra-ci` 创建，命名 `pr/mthreads-<op>`
 
 ## 文件完整性（通常 2 个文件）
 
@@ -62,6 +62,6 @@
 
 ## 提交前最终确认
 
-- [ ] `git diff --name-only upstream/master...HEAD` 只含摩尔线程特化文件
+- [ ] `git diff --name-only upstream/infra-ci...HEAD` 只含摩尔线程特化文件
 - [ ] 运行 `scripts/check_operator.py <op>` 全部通过（0 errors）
 - [ ] PR 创建后 `operator_registry.py backfill <op> <pr_url>` 回填链接

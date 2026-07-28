@@ -4,6 +4,27 @@
 #
 # 用法：python3 orchestrator.py --mthreads
 
-median
-trunc
-round_
+broadcast_tensors
+conv_transpose1d
+cudnn_batch_norm_backward
+diagonal_scatter
+erfinv
+erfinv_
+igammac_
+im2col
+index_copy
+index_select_backward
+lcm
+lcm_
+linalg_eigvals
+linalg_ldl_factor_ex
+log2_
+norm
+permute_copy
+special_chebyshev_polynomial_u
+special_modified_bessel_k0
+special_modified_bessel_k1
+special_scaled_modified_bessel_k1
+special_shifted_chebyshev_polynomial_u
+special_shifted_chebyshev_polynomial_v
+special_shifted_chebyshev_polynomial_w

@@ -44,9 +44,9 @@ description and speedup data).
 
 1. **先跑脚本，再 commit** — 每次 commit 前必须运行 `check_operator.py` 并确认 0 errors
 2. **必须先确认通用算子已存在上游** — 摩尔线程特化覆盖的是通用层已有算子。提交前必须确认
-   `git show upstream/master:src/flag_gems/ops/<op>.py` 成功（或该算子在通用层有等价实现）。
+   `git show upstream/infra-ci:src/flag_gems/ops/<op>.py` 成功（或该算子在通用层有等价实现）。
    如果通用算子还没 merge，**先提交通用版**（用 `flaggems-pr-submit` skill），再提交摩尔线程特化版
-3. **必须确认摩尔线程特化不存在上游** — `git show upstream/master:src/flag_gems/runtime/backend/_mthreads/ops/<op>.py`
+3. **必须确认摩尔线程特化不存在上游** — `git show upstream/infra-ci:src/flag_gems/runtime/backend/_mthreads/ops/<op>.py`
    应报错。已存在则不提交此 PR
 4. **回退到通用实现** — wrapper 必须在不满足特化条件（非 musa 设备、不支持的 dtype、空 tensor、
    非 contiguous 等）时回退 `default_<op>`（`from flag_gems.ops.<op> import <op> as default_<op>`），
@@ -85,7 +85,7 @@ description and speedup data).
       专测 fp64 的独立用例加 `@pytest.mark.skipif(not fp64_is_supported, reason="...fp64")`
     - `fp64_is_supported = flag_gems.runtime.device.support_fp64`（accuracy 测试可用
       `utils.fp64_is_supported`）。改后这些文件成为本 PR 提交项
-16. **每个 PR 只包含一个算子的特化** — 提交前运行 `git diff --name-only upstream/master..HEAD`
+16. **每个 PR 只包含一个算子的特化** — 提交前运行 `git diff --name-only upstream/infra-ci..HEAD`
     确认没有混入其他算子文件
 17. **PR 描述用英文** — 遵循下方 PR Description 模板，全部用英文撰写
 18. **禁止 AI 署名 / Co-Authored-By** — commit message 和 PR body 中不得包含 `Co-authored-by`、
@@ -116,7 +116,7 @@ description and speedup data).
 | Repo path | `/root/FlagGems`（`--repo-dir` 可覆盖） |
 | Fork repo | caller-provided git remote（默认 `fork`） |
 | Upstream repo | `flagos-ai/FlagGems-Experimental`（`upstream`） |
-| Default branch | `master` |
+| Default branch | `infra-ci` |
 | Worktrees | `.worktrees/gen-<op>`（摩尔线程算子列表见 `auto_gen/ops_list_mthreads.txt`） |
 | MThreads kernel path | `src/flag_gems/runtime/backend/_mthreads/ops/` |
 | Reference kernels | `_mthreads/ops/celu.py`（pointwise+fallback）、`log.py`（手写 kernel）、`addmm.py`（BLAS） |
@@ -144,9 +144,9 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/prefligh
 ```bash
 cd /root/FlagGems
 git fetch upstream
-git checkout -b pr/mthreads-<op> upstream/master
+git checkout -b pr/mthreads-<op> upstream/infra-ci
 ```
-- ❌ **禁止 cherry-pick / rebase** — worktree 结构与上游不同，分支已基于 upstream/master
+- ❌ **禁止 cherry-pick / rebase** — worktree 结构与上游不同，分支已基于 upstream/infra-ci
 
 ### Phase 1.5: Worktree Test & Speedup（MUST DO — 阻塞项）
 

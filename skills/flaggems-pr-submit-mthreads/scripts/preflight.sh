@@ -45,14 +45,14 @@ else
 fi
 
 # 2. 通用算子必须存在上游（摩尔线程特化覆盖通用算子）
-if git show "upstream/master:${GENERIC_OPS}/${OP}.py" &>/dev/null; then
+if git show "upstream/infra-ci:${GENERIC_OPS}/${OP}.py" &>/dev/null; then
     ok "通用算子存在上游: ${GENERIC_OPS}/${OP}.py"
 else
-    warn "通用算子未在 upstream/master 找到 — 确认通用版已 merge，否则先提交通用版"
+    warn "通用算子未在 upstream/infra-ci 找到 — 确认通用版已 merge，否则先提交通用版"
 fi
 
 # 3. 摩尔线程特化不能已存在上游
-if git show "upstream/master:${MTHREADS_OPS}/${OP}.py" &>/dev/null; then
+if git show "upstream/infra-ci:${MTHREADS_OPS}/${OP}.py" &>/dev/null; then
     fail "Upstream 已有摩尔线程特化: ${MTHREADS_OPS}/${OP}.py"
 else
     ok "Upstream: 摩尔线程特化不存在（可以提交）"
@@ -60,7 +60,7 @@ fi
 
 # 4. Test 文件（复用上游已有）
 TEST_FILE="tests/test_${OP}.py"
-if git show "upstream/master:${TEST_FILE}" &>/dev/null; then
+if git show "upstream/infra-ci:${TEST_FILE}" &>/dev/null; then
     ok "Test file: upstream 已有 ${TEST_FILE} → 复用验证（不提交）"
 else
     warn "Test file: upstream 无 ${TEST_FILE} → 需新建（参考 tests/test_relu.py）"
@@ -68,7 +68,7 @@ fi
 
 # 5. Benchmark 文件（复用上游已有）
 BENCH_FILE="benchmark/test_${OP}.py"
-if git show "upstream/master:${BENCH_FILE}" &>/dev/null; then
+if git show "upstream/infra-ci:${BENCH_FILE}" &>/dev/null; then
     ok "Benchmark file: upstream 已有 ${BENCH_FILE} → 复用验证（不提交）"
 else
     warn "Benchmark file: upstream 无 ${BENCH_FILE} → 需新建"

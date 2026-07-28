@@ -78,13 +78,13 @@
 
 ## 提交前最终确认
 
-- [ ] 算子不存在于上游（`git show upstream/master:src/flag_gems/ops/<op>.py` 应报错）
+- [ ] 算子不存在于上游（`git show upstream/infra-ci:src/flag_gems/ops/<op>.py` 应报错）
 - [ ] 算子名与现有算子不冲突
 - [ ] 运行 `scripts/check_operator.py <op>` 全部通过
 - [ ] 已确认 variant/canonical ID 覆盖：真实 variant 有对应 yaml/mark/op_name/test/register，alias 不新造 id
 - [ ] 已确认 logger 格式：通用 `GEMS <OP>`，backend 特化 `GEMS_VENDOR <OP>`，均 uppercase
 - [ ] 已确认无大段 inline autotune config；需要 autotune 时优先外置到 tune_configs.yaml
-- [ ] 已 `git fetch upstream` 并确认分支与 `upstream/master` 无 merge conflict
+- [ ] 已 `git fetch upstream` 并确认分支与 `upstream/infra-ci` 无 merge conflict
 - [ ] 已确认普通算子 PR 未修改全局 infra 文件：`tools/vendor.sh`、`setup.sh`、`.github/workflows/**`、`container/**`、`pyproject.toml` 等
 - [ ] push 后或请求 review 前已运行 `gh pr diff <PR> --repo flagos-ai/FlagGems-Experimental --name-only`，确认 diff 只包含当前算子相关文件
 - [ ] public API 可能绕过注册时，已增加 direct wrapper 或 `torch.ops.aten` 测试

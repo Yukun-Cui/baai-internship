@@ -120,7 +120,7 @@
 - 逐文件 stage，通常只有 2 个：kernel + `_mthreads/ops/__init__.py`
 - commit message：`[KernelGen][MThreads] Add <op> Moore Threads specialized operator`
 - **无 Co-Authored-By / AI 署名**（🤖、Generated with 等），否则 CLA CI 失败
-- 分支 `pr/mthreads-<op>`，基于 `upstream/master`
+- 分支 `pr/mthreads-<op>`，基于 `upstream/infra-ci`
 - push 前 `git fetch upstream` 确认无冲突
 
 ## 11. 环境命令对照（勿混用其他后端）

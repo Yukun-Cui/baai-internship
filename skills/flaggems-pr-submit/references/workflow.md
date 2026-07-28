@@ -23,12 +23,12 @@ PR链接:     (未提交)
 
 ```bash
 cd /root/FlagGems
-git checkout -b pr/<op> upstream/master
+git checkout -b pr/<op> upstream/infra-ci
 ```
 
 确认不存在于上游：
 ```bash
-git show upstream/master:src/flag_gems/ops/<op>.py  # should fail
+git show upstream/infra-ci:src/flag_gems/ops/<op>.py  # should fail
 ```
 
 ## Phase 1.5: Benchmark & Data
@@ -155,7 +155,7 @@ pre-commit run --files src/flag_gems/ops/<op>.py tests/test_<op>.py benchmark/te
 - ❌ **禁止 `git add -A` 或 `git add .`** — 687 worktrees 会被误加
 - ❌ **禁止 Co-Authored-By** — CLA CI 会失败
 - ❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，容易带入旧基线并造成 PR merge conflict
-- ❌ **禁止 rebase** — 分支已基于 upstream/master 创建
+- ❌ **禁止 rebase** — 分支已基于 upstream/infra-ci 创建
 - 只 stage 6 个文件，分支名 `pr/<op>`，push 到 `origin`（指向 fork `Yukun-Cui/FlagGems-Experimental`，由 `submit_operator.py` 固定）
 
 ## Phase 7: Backfill
