@@ -248,16 +248,67 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
 - `--gpu <N>` — 测试/benchmark 用的 GPU 编号（默认 `0`）。**脚本内部会按此值设置 `CUDA_VISIBLE_DEVICES`，并覆盖命令行外层 `CUDA_VISIBLE_DEVICES` 前缀，因此选卡必须用 `--gpu`，写在命令前的 `CUDA_VISIBLE_DEVICES=<N>` 会被忽略。**
 - `--token`、`--source-name`、`--canonical-name`、`--impl-name` — 高级覆盖项，一般用默认即可。
 
+### Phase 8: Review Comment 修复流程（PR 提交后）
+
+PR 收到 reviewer comments 后，批量获取并逐 PR 修复。
+
+```bash
+# 拉取所有待处理 comments（默认 upstream=flagos-ai/FlagGems-Experimental, fork-owner=Yukun-Cui）
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/fetch_review_comments.py
+# JSON 格式供程序化处理：加 --json
+```
+
+脚本自动过滤掉 bot 噪音、自己的回复、以及早于最新 commit 的过时 comment，按 PR 分组输出 branch/文件/行号。
+
+逐 PR 修复时，如需 rebase 到最新上游并自动解决 `__init__.py` / `ops/__init__.py` 的排序冲突：
+
+```bash
+cd /root/FlagGems
+git checkout <branch>
+# 一键 rebase + 自动解冲突 + push（默认 base=infra-ci, fork=origin）
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/rebase_and_resolve.py --repo-dir .
+```
+
+手动控制时，冲突可单独调用解决脚本后 `git add` + `git rebase --continue`：
+
+```bash
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/resolve_init_conflicts.py --repo-dir .      # _FULL_CONFIG 排序
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/resolve_ops_init_conflicts.py --repo-dir .  # ops/__init__.py import+__all__
+```
+
+多重载算子提交前，用一致性脚本校验 yaml id / benchmark mark+op_name / test mark 三方对齐：
+
+```bash
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/check_overload_consistency.py <op> --repo-dir /root/FlagGems
+```
+
+### Phase 9: CI 失败自动修复
+
+PR push 后 CI 失败（code-style、python-op 等），用 fix_ci.py 诊断并修复：
+
+```bash
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUMBER>
+python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUMBER> --dry-run   # 只分析
+```
+
+自动修复：无关文件混入 commit（reset + 只 stage 算子文件）、isort/black 格式错误（修复后 amend）。签名不匹配、CPU 后端不支持等只诊断，需人工处理。默认 `base=infra-ci`、push remote=`origin`，可用 `FLAGGEMS_BASE` / `FLAGGEMS_PUSH_REMOTE` 覆盖。
+
 ## References
 
 - `references/workflow.md` — Phase 2 六文件详细模板、代码 review 要点
 - `references/pr-template.md` — PR 描述模板、JSON 字段映射
-- `references/naming.md` — 下划线算子命名规则对照表
+- `references/naming.md` — 下划线算子命名规则对照表（含多重载对齐表）
 - `references/pr-checklist.md` — 提交前逐项检查清单
 - `references/common-issues.md` — 历史 review 问题汇总
 - `scripts/check_operator.py` — 自动化验证脚本（25+ 检查项）
+- `scripts/check_overload_consistency.py` — 多重载 yaml/benchmark/test 三方对齐检查
 - `scripts/gen_pr_description.py` — PR 描述数据生成
 - `scripts/operator_registry.py` — 规范名查询 + PR 链接回填
+- `scripts/fetch_review_comments.py` — 批量拉取待处理 review comments
+- `scripts/rebase_and_resolve.py` — 一键 rebase + 自动解 `__init__.py` 冲突 + push
+- `scripts/resolve_init_conflicts.py` / `scripts/resolve_ops_init_conflicts.py` — 单独解决注册文件排序冲突
+- `scripts/fix_ci.py` — 读取 CI 失败日志并自动修复常见问题
+- `scripts/query_domestic_gpu.py` — 生成 Multi-backend Testing 表格（需 `data/国产GPU算子测试情况/`）
 
 ## check_operator.py 自动检查项一览
 

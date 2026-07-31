@@ -58,6 +58,7 @@
 - [ ] 独立文件 `benchmark/test_<op>.py`
 - [ ] 使用 `from . import base, consts`（相对导入）
 - [ ] pytest mark 与 canonical/variant id 一致；benchmark `op_name` 使用固定 canonical/variant id，不用参数化 f-string
+- [ ] 多重载算子已用 `scripts/check_overload_consistency.py <op>` 校验 yaml id / benchmark mark+op_name / test mark 三方对齐
 - [ ] 自定义 benchmark class 定义在 module scope，`test_<op>()` 只实例化并 `run()`
 - [ ] 不保留只调用 `super().set_shapes(...)` / `super().set_more_shapes(...)` 的空壳 override
 - [ ] 使用 benchmark 封装类：

@@ -38,6 +38,7 @@ import sys
 import yaml
 
 from name_plan import load_name_plan
+from paths import detect_underscore_conflict, resolve_op_names
 
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
 #
@@ -89,20 +90,28 @@ class OperatorChecker:
         self.errors = []
         self.warnings = []
 
-        # 下划线前缀的算子，mark 和 yaml id 需要去掉前导下划线
-        self.op_id = op_name.lstrip("_")
         self.has_leading_underscore = op_name.startswith("_")
 
         self.kernel_path = os.path.join(repo_dir, "src/flag_gems/ops", f"{op_name}.py")
         self.ops_init_path = os.path.join(repo_dir, "src/flag_gems/ops/__init__.py")
         self.top_init_path = os.path.join(repo_dir, "src/flag_gems/__init__.py")
         self.yaml_path = os.path.join(repo_dir, "conf/operators.yaml")
-        # 测试/benchmark 文件名使用 op_id（去掉前导下划线）
+
+        # 前导下划线冲突消歧：当算子带前导下划线、且存在仅相差前导下划线的
+        # 裸算子（如 _linalg_svd vs linalg_svd）时，保留下划线以避免撞名，
+        # 且 pytest mark 用 "underscore" 前缀替代前导下划线（mark 名不能以下划线开头）。
+        # 否则沿用默认规则：id / mark / 文件名去掉前导下划线。
+        self.underscore_conflict = detect_underscore_conflict(repo_dir, op_name)
+        # op_id: id / 文件名用（冲突时保留前导下划线）
+        # mark_id: pytest mark 用（冲突时 underscore 前缀替代前导下划线）
+        self.op_id, self.mark_id = resolve_op_names(repo_dir, op_name)
+
+        # 测试/benchmark 文件名使用 op_id
         self.test_path = os.path.join(repo_dir, "tests", f"test_{self.op_id}.py")
         self.bench_path = os.path.join(repo_dir, "benchmark", f"test_{self.op_id}.py")
         self.name_plan = load_name_plan(repo_dir, op_name)
-        # 旧版错误路径（用于检测）
-        if self.has_leading_underscore:
+        # 旧版错误路径（用于检测）。冲突模式下文件名保留下划线，无“错误路径”。
+        if self.has_leading_underscore and not self.underscore_conflict:
             self.wrong_test_path = os.path.join(repo_dir, "tests", f"test_{op_name}.py")
             self.wrong_bench_path = os.path.join(repo_dir, "benchmark", f"test_{op_name}.py")
         else:
@@ -113,8 +122,13 @@ class OperatorChecker:
         if self.has_leading_underscore:
             section("命名规则提示")
             ok(f"检测到下划线前缀算子: {self.op_name}")
-            ok(f"  文件名/函数名/import/_FULL_CONFIG: 保留 {self.op_name}")
-            ok(f"  pytest mark / yaml id: 使用 {self.op_id}（去掉前导下划线）")
+            if self.underscore_conflict:
+                ok(f"  检测到裸算子冲突 → 冲突消歧模式")
+                ok(f"  文件名/函数名/import/_FULL_CONFIG/yaml id: 保留 {self.op_name}")
+                ok(f"  pytest mark: 使用 {self.mark_id}（underscore 前缀替代前导下划线）")
+            else:
+                ok(f"  文件名/函数名/import/_FULL_CONFIG: 保留 {self.op_name}")
+                ok(f"  pytest mark / yaml id: 使用 {self.op_id}（去掉前导下划线）")
 
         self.check_kernel()
         self.check_ops_init()
@@ -531,15 +545,15 @@ class OperatorChecker:
         with open(self.test_path, "r") as f:
             content = f.read()
 
-        # pytest mark 检查（使用去掉下划线的 op_id）
-        correct_mark = f"@pytest.mark.{self.op_id}"
+        # pytest mark 检查（使用 mark_id：默认去掉前导下划线，冲突时用 underscore 前缀）
+        correct_mark = f"@pytest.mark.{self.mark_id}"
         wrong_mark = f"@pytest.mark.{self.op_name}" if self.has_leading_underscore else None
 
         if correct_mark in content:
             ok(f"pytest mark 正确: {correct_mark}")
         elif wrong_mark and wrong_mark in content:
             self.errors.append(
-                f"测试文件 pytest mark 使用了 '{wrong_mark}'（带下划线），应改为 '{correct_mark}'"
+                f"测试文件 pytest mark 使用了 '{wrong_mark}'（带前导下划线），应改为 '{correct_mark}'"
             )
             fail(f"pytest mark 错误: {wrong_mark} → 应为 {correct_mark}")
         else:
@@ -634,15 +648,15 @@ class OperatorChecker:
         with open(self.bench_path, "r") as f:
             content = f.read()
 
-        # pytest mark 检查（使用去掉下划线的 op_id）
-        correct_mark = f"@pytest.mark.{self.op_id}"
+        # pytest mark 检查（使用 mark_id：默认去掉前导下划线，冲突时用 underscore 前缀）
+        correct_mark = f"@pytest.mark.{self.mark_id}"
         wrong_mark = f"@pytest.mark.{self.op_name}" if self.has_leading_underscore else None
 
         if correct_mark in content:
             ok(f"pytest mark 正确: {correct_mark}")
         elif wrong_mark and wrong_mark in content:
             self.errors.append(
-                f"benchmark pytest mark 使用了 '{wrong_mark}'（带下划线），应改为 '{correct_mark}'"
+                f"benchmark pytest mark 使用了 '{wrong_mark}'（带前导下划线），应改为 '{correct_mark}'"
             )
             fail(f"pytest mark 错误: {wrong_mark} → 应为 {correct_mark}")
         else:
@@ -932,10 +946,14 @@ class OperatorChecker:
                 fail(f"{label}: 发现 @pytest.mark.inplace — 应删除")
 
             # 检查是否有多余的 mark（不属于当前算子）
-            expected_marks = {self.op_id}
+            expected_marks = {self.op_id, self.mark_id}
             if hasattr(self, "_kernel_exported"):
                 for func in self._kernel_exported:
-                    expected_marks.add(func.lstrip("_"))
+                    bare = func.lstrip("_")
+                    expected_marks.add(bare)
+                    # 前导下划线导出函数：marker 形式用 underscore 前缀
+                    if func.startswith("_"):
+                        expected_marks.add("underscore" + func)
             extra = marks - expected_marks
             if extra:
                 self.warnings.append(f"{label}包含多余的 pytest mark: {extra}")
@@ -1560,11 +1578,18 @@ class OperatorChecker:
                 or expected_variant.endswith("_out")
                 or (expected_variant.endswith("_") and not expected_variant.endswith("__"))
             )
-            allowed_marks = {expected_variant} if is_real_variant else {self.op_id}
+            # allowed_ids：op_name / yaml id 允许值（保留前导下划线）
+            allowed_ids = {expected_variant} if is_real_variant else {self.op_id}
+
+            # pytest marker 名不能以下划线开头：前导下划线 id 的 mark 用 "underscore" 前缀替代。
+            def _id_to_mark(_id):
+                return ("underscore" + _id) if _id.startswith("_") else _id
+
+            allowed_mark_names = {_id_to_mark(x) for x in allowed_ids}
 
             for mark in actual_marks:
-                if mark not in allowed_marks:
-                    expected_text = " 或 ".join(sorted(allowed_marks))
+                if mark not in allowed_mark_names:
+                    expected_text = " 或 ".join(sorted(allowed_mark_names))
                     self.errors.append(
                         f"{label} 函数 {func_name}: @pytest.mark.{mark} 与期望不符，"
                         f"应为 @pytest.mark.{expected_text}"
@@ -1573,9 +1598,9 @@ class OperatorChecker:
                         f"{label} {func_name}: mark '{mark}' → 应为 '{expected_text}'"
                     )
 
-            # 4. 验证 op_name (仅 benchmark)。benchmark op_name 必须固定为 canonical/real variant id。
+            # 4. 验证 op_name (仅 benchmark)。benchmark op_name 必须固定为 canonical/real variant id（保留前导下划线）。
             if actual_op_name is not None and "benchmark" in label.lower():
-                allowed_op_names = allowed_marks
+                allowed_op_names = allowed_ids
                 if actual_op_name not in allowed_op_names:
                     expected_text = " 或 ".join(sorted(allowed_op_names))
                     self.errors.append(

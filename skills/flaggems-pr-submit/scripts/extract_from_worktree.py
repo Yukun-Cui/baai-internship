@@ -22,6 +22,7 @@ import sys
 import yaml
 
 from name_plan import build_name_plan, write_name_plan
+from paths import id_to_mark, resolve_op_names
 
 DEFAULT_REPO = "/root/FlagGems"
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
@@ -328,8 +329,10 @@ def convert_test_imports(func_block, op):
 
 def extract_test(op, worktree, repo, dry_run):
     section("Step 2: Test 文件")
-    op_id = get_op_id(op)
-    dst = os.path.join(repo, f"tests/test_{op_id}.py")
+    op_id = get_op_id(op)  # 读取 worktree 用（生成名，无冲突）
+    # 最终文件名用 resolve_op_names：冲突场景保留前导下划线。
+    file_op_id = resolve_op_names(repo, op)[0]
+    dst = os.path.join(repo, f"tests/test_{file_op_id}.py")
 
     fpath, content, func_name = find_test_function(op, worktree)
     if not fpath:
@@ -353,6 +356,19 @@ def extract_test(op, worktree, repo, dry_run):
 
     constants = extract_referenced_constants(content, "\n".join(blocks))
     combined_blocks = "\n\n\n".join(constants + blocks)
+
+    # 冲突场景（存在裸算子）下 pytest marker 用 underscore 前缀替代前导下划线。
+    resolved_id, resolved_mark = resolve_op_names(repo, op)
+    if resolved_mark != resolved_id:
+        # worktree 生成的 mark 可能是 <bare> 或 _<bare>，统一改成 underscore_<bare>
+        combined_blocks = re.sub(
+            rf"@pytest\.mark\.{re.escape(op)}\b",
+            f"@pytest.mark.{resolved_mark}", combined_blocks,
+        )
+        combined_blocks = re.sub(
+            rf"@pytest\.mark\.{re.escape(op_id)}\b",
+            f"@pytest.mark.{resolved_mark}", combined_blocks,
+        )
 
     test_content = (
         "import pytest\n"
@@ -512,9 +528,15 @@ def _find_list_entry(lines, op_id, source_file):
     return None
 
 
-def generate_benchmark_file(blocks, op, bench_source_file):
+def generate_benchmark_file(blocks, op, bench_source_file, repo=None):
     """Generate independent benchmark file from extracted blocks."""
-    op_id = get_op_id(op)
+    # 冲突场景（存在裸算子）下 op_id 保留前导下划线（文件名/op_name 用）；
+    # 否则去掉前导下划线。pytest marker 名不能以下划线开头，用 underscore 前缀。
+    if repo:
+        op_id, op_mark = resolve_op_names(repo, op)
+    else:
+        op_id = get_op_id(op)
+        op_mark = id_to_mark(op_id)
 
     has_class = any(t == "class" for t, _ in blocks)
     has_test = any(t == "test" for t, _ in blocks)
@@ -597,7 +619,7 @@ def generate_benchmark_file(blocks, op, bench_source_file):
         content = f"""{header}
 
 
-@pytest.mark.{op_id}
+@pytest.mark.{op_mark}
 def test_{op_id}():
     bench = {cls}(
         op_name="{op_id}",
@@ -616,8 +638,10 @@ def test_{op_id}():
 
 def extract_benchmark(op, worktree, repo, dry_run):
     section("Step 3: Benchmark 文件")
-    op_id = get_op_id(op)
-    dst = os.path.join(repo, f"benchmark/test_{op_id}.py")
+    op_id = get_op_id(op)  # 读取 worktree 用（生成名，无冲突）
+    # 最终文件名用 resolve_op_names：冲突场景保留前导下划线。
+    file_op_id = resolve_op_names(repo, op)[0]
+    dst = os.path.join(repo, f"benchmark/test_{file_op_id}.py")
 
     fpath, content = find_benchmark_code(op, worktree)
     if not fpath:
@@ -631,7 +655,7 @@ def extract_benchmark(op, worktree, repo, dry_run):
 
     ok(f"提取到 {len(blocks)} 个代码块: {[t for t, _ in blocks]}")
 
-    bench_content = generate_benchmark_file(blocks, op, fpath)
+    bench_content = generate_benchmark_file(blocks, op, fpath, repo=repo)
 
     if not bench_content:
         fatal("无法生成 benchmark 文件内容")
@@ -889,7 +913,8 @@ def insert_full_config(op, worktree, repo, dry_run):
 
 def insert_operators_yaml(op, worktree, repo, dry_run):
     section("Step 6: operators.yaml")
-    op_id = get_op_id(op)
+    # yaml id 用 resolve_op_names：冲突场景保留前导下划线（与 API 一致）。
+    op_id = resolve_op_names(repo, op)[0]
     repo_yaml = os.path.join(repo, "conf/operators.yaml")
     wt_yaml = os.path.join(worktree, "conf/operators.yaml")
 
@@ -1164,7 +1189,8 @@ def main():
     source_op = plan.source_name
     impl_op = plan.impl_name
     canonical_op = plan.canonical_name
-    canonical_op_id = get_op_id(canonical_op)
+    # 冲突场景（存在裸算子）下 canonical_op_id 保留前导下划线（最终文件名用）。
+    canonical_op_id, _canonical_mark = resolve_op_names(repo, canonical_op)
     worktree = plan.worktree_dir
 
     print(f"{Colors.BOLD}从 worktree 提取: {args.operator}{Colors.END}")

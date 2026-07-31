@@ -304,3 +304,93 @@ PR body 是 reviewer-facing 文档，不能暴露自动化内部状态。
 - `Skipped: <short reason>`
 
 新增 `pytest.mark.skip`、`skipif`、`xfail` 时，reason 必须包含 issue URL 或 `#<number>`。如果没有 issue，不要静默跳过；先报告 BLOCKED 或让用户决定是否创建 issue。
+
+## 26. Benchmark `--level core` 参数化失效（0/1 case）
+
+Benchmark 在 `--level core` 下只跑出 0 或 1 个 case，Performance 数据缺失。
+
+**根因**：FlagGems benchmark 框架的 shape 加载机制：
+- `--level core`：从 `benchmark/core_shapes.yaml` 读取 shapes。先按 `op_name` 查找，未命中则按类 MRO 中的类名查找（如 `NormBenchmark`），都未命中则退回 `DEFAULT_SHAPES`。
+- `--level comprehensive`：在 core shapes 基础上**追加** `set_more_shapes()` 返回的 shapes。
+- `set_more_shapes()` **仅在 comprehensive 级别生效**，core 级别下不调用。
+
+**常见错误**：
+1. **覆写 `set_shapes()` 忽略 yaml**：自定义 Benchmark 子类完全覆写 `set_shapes(self, shape_file_path=None)` 并硬编码 shapes，导致 yaml 机制失效。修复：删除覆写，在 `core_shapes.yaml` 添加条目，自定义 shapes 放 `set_more_shapes()`。
+2. **`set_more_shapes()` 返回 `None`**：应返回 `list` 或 `[]`，返回 `None` 可能导致异常。
+3. **yaml 缺算子条目**：`op_name` 和类名都不在 `core_shapes.yaml` 中，退回 `DEFAULT_SHAPES`（1D/2D 通用 shapes），对需要特定维度的算子无意义。修复：添加条目，shapes 格式需与 `get_input_iter` 解包方式匹配。
+
+**匹配优先级**：`op_name`（如 `"cdist_backward"`）> 类名 MRO（如 `"CdistBackwardBenchmark" > "Benchmark"`）。类名已匹配 yaml 条目时不需额外加 `op_name` 条目。
+
+> 通用 shapes（如 pooling 2d 的 ResNet shapes）被多个算子共享时，也必须放 `core_shapes.yaml` 避免在各 `get_input_iter` 中重复硬编码。
+
+## 27. Benchmark 公平性
+
+torch wrapper 必须与 gems op 做**同等量级**的计算。常见错误：
+- backward benchmark 中 torch wrapper 重跑了 forward + autograd，但 gems 只跑 backward kernel
+- 应直接调用对应的 aten op（如 `torch.ops.aten.fractional_max_pool2d_backward`）
+
+**检查方法**：torch wrapper 的计算路径是否包含 gems op 没有的额外步骤？如果是，说明对比不公平。
+
+## 28. 平台 hardcode（is_cuda）
+
+kernel 文件中禁止 `assert x.is_cuda`。FlagGems 支持多后端（Ascend、KunlunXin 等），设备检查只需确保一致性：
+```python
+assert x1.device == x2.device  # ✓ 设备一致即可
+```
+
+## 29. Fused 算子必须放 fused 目录
+
+fused 类算子（如 `add_rms_norm`、`skip_layer_norm`）：
+- 文件放 `src/flag_gems/fused/<op>.py`（小写 snake_case）
+- 在 `src/flag_gems/fused/__init__.py` 中 import 并加入 `__all__`
+- **不要**放在 `src/flag_gems/ops/` 中
+- `operators.yaml` label 用 `fused` 而非 `aten`
+
+## 30. operators.yaml 条目必须有 KernelGen label
+
+凡是通过 KernelGen 生成的算子，yaml 条目的 labels 必须包含 `KernelGen`（包括 `_out` 变体）：
+```yaml
+labels:
+  - aten
+  - KernelGen
+```
+
+## 31. 提取后必须 black 格式化
+
+从 worktree 提取的代码可能不符合上游 black 配置（如 `.to()` 链式调用的换行位置、多参数括号换行），CI 的 `black` hook 会直接失败，即使代码手动看起来格式正确。
+
+`extract_from_worktree.py` 提取后应跑 black，`check_operator.py` 在代码质量检查中执行 `black --check` 预检。手动修复：
+```bash
+python -m black src/flag_gems/ops/<op>.py tests/test_<op>.py benchmark/test_<op>.py
+```
+
+**易踩坑模式**：`torch.randint(...).to(device)`、多参数函数调用的括号换行、长表达式嵌套缩进。
+
+## 32. benchmark 文件 `generate_tensor_input` 未定义（F821）
+
+extract 脚本从 worktree 的 benchmark 提取代码时，worktree 用 `from benchmark.performance_utils import generate_tensor_input`，但提取后的独立文件用 `from . import base, consts` 导入，缺少 `utils`。
+
+**症状**：`flake8` 报 `F821 undefined name 'generate_tensor_input'`
+
+**修复**：
+```python
+from . import base, consts, utils      # 补上 utils
+inp = utils.generate_tensor_input(shape, dtype, device)  # 加前缀
+```
+
+## 33. extract 脚本意外删除无关文件
+
+`extract_from_worktree.py` 修改 `ops/__init__.py` 或 `__init__.py` 时，可能因 worktree 副本与 `upstream/infra-ci` 不完全一致，导致 commit 中包含其他算子文件的删除。
+
+**症状**：`git diff --stat upstream/infra-ci..HEAD` 显示 `D` 开头的无关文件
+
+**修复**：
+```bash
+git reset --mixed upstream/infra-ci
+git add src/flag_gems/ops/<op>.py tests/test_<op>.py benchmark/test_<op>.py \
+  src/flag_gems/ops/__init__.py src/flag_gems/__init__.py conf/operators.yaml
+git commit -m "[KernelGen][Nvidia] Add <op> operator with Triton kernel"
+git push origin HEAD:pr/<op> --force
+```
+
+**预防**：提交后立即检查 `git diff --stat upstream/infra-ci..HEAD`，确保只有 6 个文件的纯增量。

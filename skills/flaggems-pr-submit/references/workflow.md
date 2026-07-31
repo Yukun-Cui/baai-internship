@@ -64,7 +64,8 @@ python -m pytest benchmark/test_<op>.py --level core -s | python .../gen_pr_desc
 3. 仅做以下改动：
    - import 改为 `from . import accuracy_utils as utils`
    - 函数名 `test_accuracy_<op>` → `test_<op>`
-   - 去掉 vendor-specific 分支
+   - 去掉 vendor-specific 分支（`if flag_gems.vendor_name == "kunlunxin"/"cambricon"/...`）
+   - 去掉 `QUICK_MODE` 条件分支，始终用完整参数路径
 4. 不改变：比较逻辑、atol 值、参数化方式、输入构造
 
 如 worktree 无测试，使用模板：
@@ -92,6 +93,8 @@ def test_<op>(shape, dtype):
 - 用 `to_reference` 获取参考（所有参与参考计算的 tensor 都要转）
 - `gems_assert_close` 只支持 atol，不支持 rtol
 - 禁止 print()
+
+**追加模式**：提取前先查上游是否已有同名文件（`git show upstream/infra-ci:tests/test_<op>.py`）。如已存在（如 `bernoulli_` 占用 `test_bernoulli.py`），保留原文件全部代码，新测试追加到末尾，shapes/dtypes 与同文件已有测试一致，`input_fn` 用描述性命名（如 `bernoulli_input_fn`）。
 
 ### 2.5 Benchmark: `benchmark/test_<op>.py`
 

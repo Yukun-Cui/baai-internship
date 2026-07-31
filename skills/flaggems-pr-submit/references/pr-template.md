@@ -75,3 +75,15 @@ EOF
 - 国产卡 Speedup (mean) 从 summary JSON 的 `benchmark.data` 计算
 - 通过时 Notes 填 `—`，benchmark 未运行填 `N/A`，Speedup 填 `—`
 - Notes 中失败原因截短至一句话（如 "CompilationError" 而非完整 traceback）
+
+## Multi-backend Testing 表格生成（可选）
+
+如果 `data/国产GPU算子测试情况/` 有对应 summary JSON，可用脚本直接生成 Multi-backend 表格，避免手写：
+
+```bash
+python <SKILL_DIR>/scripts/query_domestic_gpu.py <op> \
+  --nvidia-speedup <mean_speedup>x --nvidia-cases <N> \
+  [--variants <alias1> <alias2>]
+```
+
+`--nvidia-*` 来自 NV benchmark 结果；`--variants` 用于算子名与数据目录中键名不同的情况。脚本输出的表格含 `Benchmark` 列，比上面模板多一列，粘贴时按需对齐。数据目录可用 `FLAGGEMS_DOMESTIC_GPU_DIR` 覆盖。
