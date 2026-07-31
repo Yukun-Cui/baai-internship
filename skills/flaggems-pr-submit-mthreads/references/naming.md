@@ -30,6 +30,27 @@
 尾部 `_` 始终保留：`bernoulli_` → 上游 mark `bernoulli_`、kernel 文件 `bernoulli_.py`、
 wrapper `bernoulli_`、分支 `pr/mthreads-bernoulli_`。
 
+## 前导下划线冲突消歧
+
+当上游存在仅相差前导下划线的两个算子（如 `linalg_svd` 与 `_linalg_svd`）时，通用层为了避免
+`id` / 文件名 / marker 撞名，会对带下划线的那个做特殊处理（保留前导下划线，且 pytest marker
+用 `underscore_` 前缀替代前导下划线，因为 marker 名不能以下划线开头）。
+
+摩尔线程特化的处理：
+
+- **提交的文件**（kernel、wrapper、`_mthreads/ops/__init__.py` import/`__all__`、回退 default 名）
+  照常用完整的 `_linalg_svd`（本就保留前导下划线，无需变化）。
+- **跑上游 test / benchmark 验证时**，`-m` 的 marker **以上游实际注册为准**，不要想当然写
+  `-m _linalg_svd` 或 `-m linalg_svd`。先查上游确认该冲突算子实际用的 marker：
+
+  ```bash
+  grep -n "linalg_svd" conf/operators.yaml            # 看 id
+  grep -rn "pytest.mark" tests/test__linalg_svd.py    # 看 test 实际 marker
+  ```
+
+  以查到的 marker 作为 `-m` 参数（通用层按冲突消歧规范时通常是 `underscore_linalg_svd`，
+  但一切以上游实际值为准）。
+
 ## 与通用版差异
 
 - 摩尔线程**不涉及** `_FULL_CONFIG`、`conf/operators.yaml` 新增（通用层已注册）

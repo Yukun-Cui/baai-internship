@@ -182,6 +182,9 @@ MUSA_VISIBLE_DEVICES=$GPU python3 /root/baai-internship/auto_gen/fix_worktree_im
 - `MUSA_VISIBLE_DEVICES`（不是 `CUDA_VISIBLE_DEVICES`）
 - **必须** `cd` 进 worktree 后再运行 `fix_worktree_import.py`（脚本靠 CWD 检测 worktree 根目录）
 - 测试输出中**必须看到 `GEMS_MTHREADS <OP>` DEBUG 日志**，否则说明特化未被 `replace_customized_ops()` 替换
+- **前导下划线冲突算子**（上游同时有 `linalg_svd` 和 `_linalg_svd`）：`-m` 的 marker 与文件名
+  `test_<op>.py` 的 `<op>` 可能不同，marker **以上游实际注册为准**（通常是 `underscore_<裸名>`，
+  但需 `grep pytest.mark tests/test_<op>.py` 确认），不要直接用 `-m _<op>`。详见 `references/naming.md`
 
 benchmark 输出的每行 SUCCESS 数据（按 dtype 分组）就是 PR Performance 表格来源。
 **没有预生成 summary.json** — 加速比只能从上面现跑并 `tee` 出的 `/tmp/<op>_mthreads_bench.log`
