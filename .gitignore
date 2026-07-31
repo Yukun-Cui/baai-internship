@@ -32,3 +32,8 @@ batch_pr_submit/operators_*.txt
 batch_pr_submit/agent_status.json
 batch_pr_submit/*_upstream_check.md
 batch_pr_submit/logs/
+
+# claude_trace runtime artifacts (captured sessions contain request headers/tokens)
+claude_trace/sessions/
+claude_trace/sessions_cc/
+claude_trace/.mitm_refcount
