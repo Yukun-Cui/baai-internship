@@ -12,7 +12,7 @@ Usage:
     --full: 输出完整 PR description（含 Summary/Testing/Files），否则只输出表格
     --notes: 附加到 Summary 的一句话描述
 
-加速比统计用几何平均（比率数据）。
+加速比统计用算术平均。
 """
 import argparse
 import math
@@ -27,13 +27,6 @@ OP_HEADER_RE = re.compile(
     r"Operator:\s+(\S+)\s+Performance Test\s+\(dtype=([^,]+),"
 )
 SHAPE_RE = re.compile(r"torch\.Size\(\[([^\]]+)\]\)")
-
-
-def geometric_mean(values):
-    vals = [v for v in values if isinstance(v, (int, float)) and v > 0]
-    if not vals:
-        return 0.0
-    return math.exp(sum(math.log(v) for v in vals) / len(vals))
 
 
 def parse_benchmark_output(text):
@@ -93,12 +86,12 @@ def format_table(rows, op=None):
             row += f" {r.get('tflops', 0):.3f} |"
         lines.append(row)
 
-    gm = geometric_mean(r["speedup"] for r in rows)
-    if gm:
+    am = sum(r["speedup"] for r in rows) / len(rows) if rows else 0.0
+    if am:
         lines.append("")
-        lines.append("| Operator | Geometric Mean Speedup |")
+        lines.append("| Operator | Arithmetic Mean Speedup |")
         lines.append("|----------|------------------------|")
-        lines.append(f"| {op or 'N/A'} | **{gm:.2f}x** |")
+        lines.append(f"| {op or 'N/A'} | **{am:.2f}x** |")
     return "\n".join(lines)
 
 

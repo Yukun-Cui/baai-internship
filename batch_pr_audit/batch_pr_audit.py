@@ -688,7 +688,7 @@ def deterministic_checks(metadata: dict, files: list[str], diff_text: str) -> di
         add(
             "info",
             "low_speedup",
-            "PR body reports little or no geometric mean speedup.",
+            "PR body reports little or no arithmetic mean speedup.",
             [item],
         )
 
@@ -1627,7 +1627,7 @@ def extract_speedup_findings(body: str, current_ids: set[str], threshold: float 
     if not body:
         return findings
     for line in body.splitlines():
-        if "|" not in line or "Geometric Mean" in line or "Mean Speedup" in line or "---" in line:
+        if "|" not in line or "Arithmetic Mean" in line or "---" in line:
             continue
         cells = [cell.strip().strip("*") for cell in line.strip().strip("|").split("|")]
         if len(cells) < 2:
@@ -1640,7 +1640,7 @@ def extract_speedup_findings(body: str, current_ids: set[str], threshold: float 
         except ValueError:
             continue
         if speedup < threshold:
-            findings.append(f"{op_name}: geometric mean speedup {speedup:.3f} < {threshold:.2f}")
+            findings.append(f"{op_name}: arithmetic mean speedup {speedup:.3f} < {threshold:.2f}")
     return findings
 
 

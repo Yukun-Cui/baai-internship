@@ -216,7 +216,7 @@ def format_pr_body(op_name, pr_data, repo_dir):
     nv = pr_data.get("nvidia_benchmark", {})
     rows = nv.get("rows", [])
     case_count = nv.get("case_count", len(rows))
-    gm_speedup = nv.get("geometric_mean_speedup", 0)
+    am_speedup = nv.get("arithmetic_mean_speedup", 0)
 
     # Performance table: one clear section per operator/variant.
     operator_means = nv.get("operator_means", [])
@@ -234,7 +234,7 @@ def format_pr_body(op_name, pr_data, repo_dir):
     for row_operator in order or [op_name]:
         op_rows = grouped_rows.get(row_operator, [])
         mean_item = mean_by_operator.get(row_operator, {})
-        mean_speedup = mean_item.get("speedup", gm_speedup)
+        mean_speedup = mean_item.get("speedup", am_speedup)
         has_tflops = any(r.get("tflops") for r in op_rows)
 
         perf_lines.append(f"### {_display_operator_name(row_operator)}")
@@ -263,7 +263,7 @@ def format_pr_body(op_name, pr_data, repo_dir):
                 common = common + f" {r.get('tflops', 0):.3f} |"
             perf_lines.append(common)
         perf_lines.append("")
-        perf_lines.append("| Operator | Geometric Mean Speedup |")
+        perf_lines.append("| Operator | Arithmetic Mean Speedup |")
         perf_lines.append("|----------|------------------------|")
         perf_lines.append(
             f"| {_display_operator_name(row_operator)} | **{mean_speedup:.3f}** |"
@@ -277,7 +277,7 @@ def format_pr_body(op_name, pr_data, repo_dir):
     backend_lines = []
     backend_lines.append("| Backend | Accuracy Test | Speedup (mean) | Notes |")
     backend_lines.append("|---|---|---|---|")
-    nvidia_speedup = _format_mean_speedups(operator_means, gm_speedup)
+    nvidia_speedup = _format_mean_speedups(operator_means, am_speedup)
     backend_lines.append(
         f"| Nvidia (H20) | PASS ({case_count} cases) | {nvidia_speedup} | Primary |"
     )
@@ -469,13 +469,13 @@ def main():
 
     nv_rows = pr_data.get("nvidia_benchmark", {}).get("rows", [])
     nv_case_count = pr_data.get("nvidia_benchmark", {}).get("case_count", 0)
-    gm_speedup = pr_data.get("nvidia_benchmark", {}).get("geometric_mean_speedup", 0)
-    ok(f"Nvidia: {nv_case_count} cases, geometric mean speedup = {gm_speedup:.3f}")
+    am_speedup = pr_data.get("nvidia_benchmark", {}).get("arithmetic_mean_speedup", 0)
+    ok(f"Nvidia: {nv_case_count} cases, mean speedup = {am_speedup:.3f}")
 
     SPEEDUP_THRESHOLD = 0.6
-    if gm_speedup > 0 and gm_speedup < SPEEDUP_THRESHOLD:
+    if am_speedup > 0 and am_speedup < SPEEDUP_THRESHOLD:
         msg = (
-            f"几何平均 speedup {gm_speedup:.3f} 低于阈值 {SPEEDUP_THRESHOLD}，"
+            f"平均 speedup {am_speedup:.3f} 低于阈值 {SPEEDUP_THRESHOLD}，"
             "继续提交，仅作为性能提醒"
         )
         warn(msg)

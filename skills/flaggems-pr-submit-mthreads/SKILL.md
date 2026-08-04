@@ -313,7 +313,7 @@ Compared against the generic FlagGems implementation on Moore Threads (MUSA).
 |---|---|---|---|---|
 | ... | ... | ... | ... | ...x |
 
-| Operator | Geometric Mean Speedup |
+| Operator | Arithmetic Mean Speedup |
 |----------|------------------------|
 | <op> | **<value>x** |
 
@@ -324,7 +324,7 @@ Compared against the generic FlagGems implementation on Moore Threads (MUSA).
 
 **PR description rules:**
 - MUST be in English，含 Summary / Testing / Performance / Files Changed
-- Performance 表必须是实测加速比，按 dtype 分组，附 Geometric Mean Speedup（比率数据用几何平均）
+- Performance 表必须是实测加速比，按 dtype 分组，附 Arithmetic Mean Speedup
 - 特化性能不能比通用差；若某 shape 偏低如实展示并记录到 pr状态记录.md
 
 ### Phase 7: Backfill PR Link（MUST DO）

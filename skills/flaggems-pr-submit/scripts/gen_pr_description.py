@@ -29,12 +29,6 @@ import sys
 from pathlib import Path
 
 
-def geometric_mean(values):
-    """Geometric mean of speedups (ratio data). Ignores non-positive values."""
-    vals = [v for v in values if isinstance(v, (int, float)) and v > 0]
-    if not vals:
-        return 0.0
-    return math.exp(sum(math.log(v) for v in vals) / len(vals))
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -150,7 +144,7 @@ def parse_benchmark_output(text: str) -> list[dict]:
 
 
 def compute_operator_means(rows: list[dict], fallback_op: str) -> list[dict]:
-    """Compute geometric mean speedup per operator/variant in display order."""
+    """Compute arithmetic mean speedup per operator/variant in display order."""
     groups: dict[str, list[float]] = {}
     order = []
     for row in rows:
@@ -164,7 +158,7 @@ def compute_operator_means(rows: list[dict], fallback_op: str) -> list[dict]:
     means = []
     for op in order:
         values = groups[op]
-        mean = geometric_mean(values)
+        mean = sum(values) / len(values) if values else 0.0
         means.append(
             {"operator": op, "case_count": len(values), "speedup": round(mean, 3)}
         )
@@ -404,7 +398,7 @@ def _extract_bench_case_count(op_info: dict, summary_dir: Path, op_name: str) ->
 
 
 def _extract_bench_mean_speedup(op_info: dict) -> float | None:
-    """Extract geometric mean speedup from benchmark data array."""
+    """Extract arithmetic mean speedup from benchmark data array."""
     bench_info = op_info.get("benchmark", {}) or {}
     data = bench_info.get("data", [])
     if not data:
@@ -412,7 +406,7 @@ def _extract_bench_mean_speedup(op_info: dict) -> float | None:
     speedups = [r["speedup"] for r in data if "speedup" in r]
     if not speedups:
         return None
-    return round(geometric_mean(speedups), 3)
+    return round(sum(speedups) / len(speedups), 3)
 
 
 def _get_bench_command(backend_name: str, op_name: str) -> str:
@@ -549,10 +543,10 @@ def main():
         except Exception as e:
             nvidia_status = f"error: {e}"
 
-    # --- Compute stats (geometric mean for ratio data) ---
-    gm_speedup = 0.0
+    # --- Compute stats ---
+    am_speedup = 0.0
     if nvidia_rows:
-        gm_speedup = geometric_mean(r["speedup"] for r in nvidia_rows)
+        am_speedup = sum(r["speedup"] for r in nvidia_rows) / len(nvidia_rows)
 
     nvidia_case_count = len(nvidia_rows) if nvidia_rows else 0
     operator_means = compute_operator_means(nvidia_rows, op_name)
@@ -582,7 +576,7 @@ def main():
             "level": "core",
             "rows": nvidia_rows,
             "case_count": nvidia_case_count,
-            "geometric_mean_speedup": round(gm_speedup, 3),
+            "arithmetic_mean_speedup": round(am_speedup, 3),
             "operator_means": operator_means,
         },
         "domestic_gpu": domestic,
