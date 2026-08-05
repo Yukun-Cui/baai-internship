@@ -65,7 +65,7 @@ description: >
 49. **yaml 长文案要可读** — `description` 等长文本用 block scalar 或合理换行，不提交超过 120 字符的单行描述
 50. **必须证明真实 dispatch 路径被测到** — public API 可能绕过 FlagGems 时，加直接 wrapper/`torch.ops.aten` 测试；autograd 实现要有 backward smoke
 51. **新提交分支必须新鲜且无冲突** — push 或请求 review 前 fetch upstream，并通过 `check_operator.py` 的上游冲突检查，证明当前分支可与 `upstream/infra-ci` 无冲突合并
-52. **Performance 描述必须清晰分组** — PR body 的 Performance 按 operator/variant 分 `###` 小节，表格包含 `dtype`、`Size`、Torch/Gems latency、Speedup；benchmark 输出含 TFLOPS 时必须记录 `TFLOPS` 列；每个 variant 单独给 Geometric Mean Speedup（加速比是比率数据，用几何平均）
+52. **Performance 描述必须清晰分组** — PR body 的 Performance 按 operator/variant 分 `###` 小节，表格包含 `dtype`、`Size`、Torch/Gems latency、Speedup；benchmark 输出含 TFLOPS 时必须记录 `TFLOPS` 列；每个 variant 单独给 Arithmetic Mean Speedup（加速比统计用算术平均）
 53. **backend 特化仅在需要时触发额外校验** — 只有当 PR 明确包含 `src/flag_gems/runtime/backend/**` 变更，或用户明确标注 `(muxi特化)` / `(tianshu特化)` 等 backend 特化时，才执行 backend specialization gate；普通算子不得被额外 backend 规则干扰
 
 ### Review Hygiene Rules（普通算子 PR）
@@ -155,7 +155,7 @@ python scripts/extract_from_worktree.py CrossAttention \
 - 每个 operator/variant 单独一个 `### <Operator>` 小节；in-place variant 显示为 `<Operator> (in-place)`
 - 表格列固定包含 `dtype`、`Size`、`Torch Latency (ms)`、`Gems Latency (ms)`、`Speedup`
 - 如果 benchmark 输出包含 TFLOPS，必须额外显示 `TFLOPS` 列，不能丢失
-- 每个 operator/variant 后单独列 `Geometric Mean Speedup`
+- 每个 operator/variant 后单独列 `Arithmetic Mean Speedup`
 - `Multi-backend Testing` 的 Nvidia speedup 多 variant 时用 `/` 连接，例如 `1.175/1.194`
 
 ### Backend Specialization Gate（仅当 PR 包含 backend 特化时）

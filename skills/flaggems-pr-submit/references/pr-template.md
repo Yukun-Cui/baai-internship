@@ -28,14 +28,14 @@ Test command: `pytest benchmark/test_<op>.py --level core` (NVIDIA H20)
 |-------|------|--------------------|-------------------|---------|--------|
 | <dtype> | <size> | <torch_ms> | <gems_ms> | <speedup> | <tflops> |
 
-| Operator | Geometric Mean Speedup |
+| Operator | Arithmetic Mean Speedup |
 |----------|------------------------|
-| <Operator> | **<gm_speedup>** |
+| <Operator> | **<am_speedup>** |
 
 ## Multi-backend Testing
 | Backend | Accuracy Test | Speedup (mean) | Notes |
 |---|---|---|---|
-| Nvidia (H20) | PASS (<N> cases) | <gm_speedup> | Primary |
+| Nvidia (H20) | PASS (<N> cases) | <am_speedup> | Primary |
 | Tianshu | <acc> | <mean_speedup> | <notes> |
 | Muxi | <acc> | <mean_speedup> | <notes> |
 | Ascend | <acc> | <mean_speedup> | <notes> |
@@ -59,7 +59,7 @@ EOF
 | 模板位置 | JSON 字段 |
 |---------|-----------|
 | Performance 表格行 | `nvidia_benchmark.rows[]` (operator, dtype, shape, torch_ms, gems_ms, speedup, tflops) |
-| Geometric Mean | `nvidia_benchmark.operator_means[]`（几何平均）；单 variant 可回退到 `nvidia_benchmark.geometric_mean_speedup` |
+| Arithmetic Mean | `nvidia_benchmark.operator_means[]`（算术平均）；单 variant 可回退到 `nvidia_benchmark.arithmetic_mean_speedup` |
 | Performance case 数 | `nvidia_benchmark.case_count` |
 | Multi-backend PASS/FAIL | `domestic_gpu.<backend>.accuracy_passed` / `benchmark_passed` |
 | Multi-backend Speedup | `domestic_gpu.<backend>.bench_mean_speedup` |

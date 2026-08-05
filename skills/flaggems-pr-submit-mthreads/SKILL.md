@@ -188,7 +188,7 @@ MUSA_VISIBLE_DEVICES=$GPU python3 /root/baai-internship/auto_gen/fix_worktree_im
 
 benchmark 输出的每行 SUCCESS 数据（按 dtype 分组）就是 PR Performance 表格来源。
 **没有预生成 summary.json** — 加速比只能从上面现跑并 `tee` 出的 `/tmp/<op>_mthreads_bench.log`
-获取，`format_benchmark.py <op> --bench-log <log>` 会解析这些 SUCCESS 行生成表格与几何平均。
+获取，`format_benchmark.py <op> --bench-log <log>` 会解析这些 SUCCESS 行生成表格与算术平均。
 
 ### Phase 2: Code Preparation
 

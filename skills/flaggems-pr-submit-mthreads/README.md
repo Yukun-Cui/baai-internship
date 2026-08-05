@@ -39,7 +39,7 @@ FlagGems **摩尔线程(Moore Threads/MUSA)** 特化算子 PR 提交 skill，用
 | `preflight.sh` | 提交前预检：worktree、通用算子存在上游、特化不存在上游、test 复用判定、benchmark 数据 |
 | `prepare_kernel.sh` | 从 worktree 复制 kernel + 确保 Apache 文件头 + 按字母序注册 `_mthreads/ops/__init__.py` |
 | `check_operator.py` | 自动化验证：文件头、注册、musa 设备、fallback、`GEMS_MTHREADS` logger、`tl_extra_shim`、fp64/int64、单算子 PR、上游冲突 |
-| `format_benchmark.py` | 解析现跑的 benchmark stdout（`--bench-log`）提取加速比（几何平均）生成英文 PR 描述 |
+| `format_benchmark.py` | 解析现跑的 benchmark stdout（`--bench-log`）提取加速比（算术平均）生成英文 PR 描述 |
 | `commit_and_push.sh` | 验证分支 + 逐文件 stage + commit（无 AI 署名）+ push fork |
 | `create_pr.sh` | 生成 PR body + `gh pr create` + 回填链接 |
 
