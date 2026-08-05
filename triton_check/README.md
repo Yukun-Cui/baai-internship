@@ -37,6 +37,9 @@ ANTHROPIC_MODEL=claude-opus-4-8
 ```yaml
 flaggems_dir: /root/FlagGems    # FlagGems 仓库路径
 
+# git-diff 兜底查找新算子文件时的 base ref（experimental=infra-ci，mainline=master）
+diff_base: infra-ci
+
 # 扫描模式：single_worktree（单目录）/ multi_worktree（每算子独立 worktree）
 scan_mode: multi_worktree
 worktree: ""                              # single_worktree 模式下的 worktree 子路径

@@ -25,15 +25,20 @@ FlagGems 算子批量提 PR 工具。读取算子列表，为每个算子创建�
 MAX_PARALLEL=1                                                   # 并行数（每个 job 独占一块 GPU）
 OP_LIST="/root/baai-internship/batch_pr_submit/ops_list.txt"
 REPO_DIR="/root/FlagGems"                                        # 源仓库（并行期间不被修改）
+UPSTREAM_REMOTE="upstream"                                       # 本地 upstream remote 名
+BASE_BRANCH="infra-ci"                                           # 上游 base 分支：experimental=infra-ci，mainline=master
+FORK_REPO="Yukun-Cui/FlagGems-Experimental"                      # push 用的 fork（owner/name），worktree 里重写 origin
 SCRIPTS_DIR="/root/baai-internship/skills/flaggems-pr-submit/scripts"
 GH_TOKEN="${GH_TOKEN:-}"                                         # 启动前 export
 LOG_DIR="/root/baai-internship/batch_pr_submit/logs"
 WORKTREE_BASE_DIR="/tmp/flaggems_worktrees"                      # 每个算子的临时 worktree
 ```
 
-> Python 版 `batch_pr_submit.py` 不读 `config.env`，上述键（`MAX_PARALLEL`/`OP_LIST`/`WORKTREE_BASE_DIR`/`LOG_DIR`/`SCRIPTS_DIR`）对它无效，改用命令行参数：`--ops-file`、`--max-workers`、`--worktree-base`、`--log-dir`、`--skill-dir`。其默认值也不同于 Shell 版——worktree 根默认 `/tmp/flaggems_agent_worktrees`、日志目录默认 `…/logs/agent/`。
+> **双目标**：提到 experimental（fork 的 `infra-ci`）还是 mainline（上游 `master`），由 `BASE_BRANCH` + `FORK_REPO` 决定，需保证本地 `upstream` remote 指向匹配的仓库。详见 [skills/flaggems-pr-submit](../skills/flaggems-pr-submit/) 的 targets 预设。
 
-`submit_one.sh` 会把 worktree 的 origin 指向你的 fork（在脚本里改成自己的 fork 地址）。
+> Python 版 `batch_pr_submit.py` 不读 `config.env`，上述键对它无效，改用命令行参数：`--ops-file`、`--max-workers`、`--worktree-base`、`--log-dir`、`--skill-dir`、`--upstream-remote`（默认 `upstream`）、`--base`（默认 `infra-ci`，mainline 时传 `master`）。其默认值也不同于 Shell 版——worktree 根默认 `/tmp/flaggems_agent_worktrees`、日志目录默认 `…/logs/agent/`。
+
+`submit_one.sh` 会把 worktree 的 origin 重写到 `FORK_REPO` 指向的 fork（在 `config.env` 里配置，不再改脚本）。
 
 > 提 PR 前先 `export GH_TOKEN=<your_token>`。GH_TOKEN 通过环境变量传入，不要写死在文件里。
 
@@ -55,7 +60,9 @@ Python 版（带 GPU 自动调度，`--ops-file` 必填）：
 ```bash
 export GH_TOKEN=<your_token>
 python3 batch_pr_submit.py --ops-file ops_list.txt \
-  --repo-dir /root/FlagGems --max-workers 4 --gpus auto
+  --repo-dir /root/FlagGems --max-workers 4 --gpus auto        # 默认 experimental：--base infra-ci
+python3 batch_pr_submit.py --ops-file ops_list.txt \
+  --base master --upstream-remote upstream                      # mainline：提到上游 master
 python3 batch_pr_submit.py --ops-file ops_list.txt --dry-run    # 预演
 ```
 
