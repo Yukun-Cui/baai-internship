@@ -212,9 +212,9 @@ def test_reflection_pad3d_list_padding(...):
 
 ## 20. 新提交分支冲突预防
 
-- 新算子提交前必须 `git fetch upstream master`。
-- `check_operator.py` 必须通过“上游冲突检查”：当前分支既不能提交上游已存在的算子，也必须能与 `upstream/infra-ci` 无冲突合并。
-- 如果上游冲突检查失败，本次新提交必须重新基于最新 `upstream/infra-ci` 创建分支并重新提取算子，不能把冲突分支提交成 PR。
+- 新算子提交前必须 fetch 目标 base 分支（experimental=infra-ci，mainline=master）：`git fetch upstream <base>`。
+- `check_operator.py` 必须通过“上游冲突检查”：当前分支既不能提交上游已存在的算子，也必须能与目标 base 分支（`upstream/<base>`）无冲突合并。
+- 如果上游冲突检查失败，本次新提交必须重新基于最新 `upstream/<base>` 创建分支并重新提取算子，不能把冲突分支提交成 PR。
 
 ## 21. 普通算子 PR 不改全局 infra
 

@@ -78,7 +78,7 @@ mkdir -p "$WORKTREE_BASE_DIR"
     cd "$REPO_DIR"
     git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
     git branch -D "$BRANCH_NAME" 2>/dev/null || true
-    git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" upstream/master --quiet
+    git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "${UPSTREAM_REMOTE}/${BASE_BRANCH}" --quiet
 ) 200>"$GIT_LOCK"
 
 if [[ $? -ne 0 ]]; then
@@ -91,7 +91,7 @@ ln -sf "$REPO_DIR/.worktrees" "$WORKTREE_DIR/.worktrees"
 
 # Setup push remote in worktree
 cd "$WORKTREE_DIR"
-git remote set-url origin "https://${GH_TOKEN}@github.com/Yukun-Cui/FlagGems-Experimental.git" 2>/dev/null || true
+git remote set-url origin "https://${GH_TOKEN}@github.com/${FORK_REPO}.git" 2>/dev/null || true
 
 # ============================================================================
 # Phase 2: operator_registry.py lookup
@@ -121,13 +121,14 @@ echo "=== Phase 4-7: submit_operator.py ===" >> "$LOG_FILE"
 SUBMIT_OUTPUT=$(python "$SCRIPTS_DIR/submit_operator.py" "$OP_NAME" \
     --repo-dir "$WORKTREE_DIR" \
     --gpu "$CUDA_DEVICE" \
+    --base "$BASE_BRANCH" \
     --token "$GH_TOKEN" 2>&1)
 SUBMIT_EXIT=$?
 echo "$SUBMIT_OUTPUT" >> "$LOG_FILE"
 
 if [[ $SUBMIT_EXIT -eq 0 ]]; then
     # Extract PR URL from submit_operator.py output
-    PR_URL=$(echo "$SUBMIT_OUTPUT" | grep -oP 'PR:\s*\Khttps://github\.com/flagos-ai/FlagGems-Experimental/pull/\d+' | tail -1)
+    PR_URL=$(echo "$SUBMIT_OUTPUT" | grep -oP 'PR:\s*\Khttps://github\.com/[^/]+/[^/]+/pull/\d+' | tail -1)
     write_json "success" "" "" "$PR_URL"
     exit 0
 else

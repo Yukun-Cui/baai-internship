@@ -402,16 +402,16 @@ def require_path(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} not found: {path}")
 
 
-def git_fetch_upstream(repo_dir: Path, retries: int) -> None:
+def git_fetch_upstream(repo_dir: Path, retries: int, remote: str, base: str) -> None:
     last = ""
     for attempt in range(1, retries + 1):
-        result = run_cmd(["git", "fetch", "upstream", "master", "--quiet"], repo_dir)
+        result = run_cmd(["git", "fetch", remote, base, "--quiet"], repo_dir)
         if result.returncode == 0:
             return
         last = (result.stderr or result.stdout).strip()
-        print(f"[WARN] git fetch upstream master failed ({attempt}/{retries}); retrying...")
+        print(f"[WARN] git fetch {remote} {base} failed ({attempt}/{retries}); retrying...")
         time.sleep(attempt * 5)
-    raise RuntimeError(f"git fetch upstream master failed: {last}")
+    raise RuntimeError(f"git fetch {remote} {base} failed: {last}")
 
 
 def create_worktree(
@@ -420,6 +420,7 @@ def create_worktree(
     op_name: str,
     branch_prefix: str,
     git_lock_path: Path,
+    upstream_ref: str,
 ) -> tuple[Path, str]:
     worktree_base.mkdir(parents=True, exist_ok=True)
     pid = os.getpid()
@@ -436,7 +437,7 @@ def create_worktree(
             run_cmd(["git", "worktree", "remove", "--force", str(worktree_dir)], repo_dir)
             run_cmd(["git", "branch", "-D", branch], repo_dir)
             result = run_cmd(
-                ["git", "worktree", "add", "-b", branch, str(worktree_dir), "upstream/master"],
+                ["git", "worktree", "add", "-b", branch, str(worktree_dir), upstream_ref],
                 repo_dir,
             )
             if result.returncode != 0:
@@ -477,10 +478,11 @@ def build_prompt(
     scripts_dir: Path,
     dry_run: bool,
     timeout_min: int,
+    base: str,
 ) -> str:
     submit_cmd = (
         f'CUDA_VISIBLE_DEVICES={gpu_id} python "{scripts_dir / "submit_operator.py"}" '
-        f'"{op_name}" --repo-dir "{worktree_dir}" --gpu "{gpu_id}" --token "$GH_TOKEN"'
+        f'"{op_name}" --repo-dir "{worktree_dir}" --gpu "{gpu_id}" --base "{base}" --token "$GH_TOKEN"'
     )
     if dry_run:
         submit_cmd += " --dry-run"
@@ -507,7 +509,7 @@ Hard requirements:
 - Do not use skip flags for tests or benchmarks.
 - If generated code fails extraction or strict checks, repair the code in the worktree while preserving the skill rules.
 - If the operator is structurally impossible to submit as a standalone PR, stop and report BLOCKED with the concrete reason.
-- If submitting this operator would require deleting or renaming files that already exist on upstream/master, or modifying existing upstream tests/benchmarks, report BLOCKED instead of restructuring the repo.
+- If submitting this operator would require deleting or renaming files that already exist on upstream/{base}, or modifying existing upstream tests/benchmarks, report BLOCKED instead of restructuring the repo.
 - Kernel headers must contain only the FlagOS Contributors Apache license block followed immediately by the KernelGen line; remove any extra personal or institution copyright lines if extraction brings them in.
 
 Required flow:
@@ -778,6 +780,7 @@ def run_one_operator(
             op_name,
             args.branch_prefix,
             args.repo_dir / ".git" / "batch_agent.lock",
+            f"{args.upstream_remote}/{args.base}",
         )
 
         running = Result(
@@ -817,6 +820,7 @@ def run_one_operator(
             args.scripts_dir,
             args.dry_run,
             args.timeout,
+            args.base,
         )
 
         cmd = [
@@ -1055,6 +1059,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-dir", default="/root/baai-internship/batch_pr_submit/logs/agent", type=Path)
     parser.add_argument("--status-file", default="/root/baai-internship/batch_pr_submit/agent_status.json", type=Path)
     parser.add_argument("--branch-prefix", default="agent-pr")
+    parser.add_argument("--upstream-remote", default="upstream", help="Local upstream remote name")
+    parser.add_argument("--base", default="infra-ci", help="Upstream base branch (experimental=infra-ci, mainline=master)")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--gpus", default="auto", help="'auto'/'all' or comma-separated physical GPU IDs")
     parser.add_argument("--no-auto-gpu-check", action="store_true", help="Do not wait for free GPUs; just round-robin the --gpus list")
@@ -1142,8 +1148,8 @@ def main() -> int:
     print(f"Log dir:     {run_log_dir}")
     print("=" * 72)
 
-    print("[PREP] Fetching upstream/master...")
-    git_fetch_upstream(args.repo_dir, args.fetch_retries)
+    print(f"[PREP] Fetching {args.upstream_remote}/{args.base}...")
+    git_fetch_upstream(args.repo_dir, args.fetch_retries, args.upstream_remote, args.base)
     print("[PREP] Fetch done.")
 
     gpu_pool = GpuPool(

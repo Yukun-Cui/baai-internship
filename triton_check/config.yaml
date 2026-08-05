@@ -2,6 +2,10 @@
 
 flaggems_dir: /root/FlagGems
 
+# git-diff 兜底查找新算子文件时用的 base ref
+#   experimental target: infra-ci ; mainline target: master
+diff_base: infra-ci
+
 # 扫描模式：
 #   single_worktree: 在一个 worktree 目录中扫描所有 ops（原始模式）
 #   multi_worktree:  每个算子有独立 worktree，路径为 .worktrees/gen-{op}/

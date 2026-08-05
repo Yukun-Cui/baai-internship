@@ -17,7 +17,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", default="flagos-ai/FlagGems-Experimental")
     parser.add_argument("--remote", default="fork")
     parser.add_argument("--upstream-remote", default="upstream")
-    parser.add_argument("--upstream-branch", default="master")
+    parser.add_argument("--upstream-branch", default="infra-ci",
+                        help="Upstream base branch (experimental=infra-ci, mainline=master)")
     parser.add_argument("--worktree-root", default="/root/pr_worktrees")
     parser.add_argument("--rebase", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--force-reset", action=argparse.BooleanOptionalAction, default=False)

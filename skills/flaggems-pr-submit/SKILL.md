@@ -190,7 +190,7 @@ python scripts/extract_from_worktree.py CrossAttention \
 |------|-------|
 | Repo | Default `/root/FlagGems`; caller-provided `--repo-dir` overrides this |
 | Fork | Caller-provided git remote / `GH_TOKEN` identity |
-| Upstream | `flagos-ai/FlagGems-Experimental` |
+| Upstream | 由 `--target` 决定（见下方「提交目标」） |
 | Worktrees | `/root/FlagGems/.worktrees/gen-<op>` unless `--repo-dir` overrides repo |
 | Token | `GH_TOKEN` from the current process environment |
 | Data | `/root/baai-internship/skills/flaggems-pr-submit/data/规范名.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/第一批pr算子.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/pr状态记录.md` |
@@ -198,6 +198,21 @@ python scripts/extract_from_worktree.py CrossAttention \
 数据文件默认集中在 skill 的 `data/` 目录；如需临时覆盖，可使用 `FLAGGEMS_PR_SUBMIT_DATA_DIR`、`FLAGGEMS_NORM_XLSX`、`FLAGGEMS_PR_XLSX`、`FLAGGEMS_PR_RECORD_PATH`。
 
 不要在 skill、日志或 PR 内容中写入 token。默认使用 `/root/FlagGems`；如果调用方或批量脚本明确给出 `--repo-dir`，以调用方传入值为准。
+
+### 提交目标（target）
+
+本 skill 可投到两个不同的上游仓库，用 `--target <name>` 选择（`submit_operator.py` / `check_operator.py` 均支持；也可用 `FLAGGEMS_TARGET` 环境变量），预设定义在 `scripts/targets.py`：
+
+| target | upstream 仓库 | base 分支 | fork owner | push |
+|--------|--------------|----------|-----------|------|
+| `experimental`（默认） | `flagos-ai/FlagGems-Experimental` | `infra-ci` | `Yukun-Cui` | `origin` `pr/<op>` |
+| `mainline` | `flagos-ai/FlagGems` | `master` | `Yukun-Cui` | `origin` `pr/<op>` |
+
+⚠️ **开工前先确认 target**：不确定投哪个时，先问用户，不要默认硬投 `experimental`。
+
+⚠️ **本地 remote 前提**：两个 target 是不同 GitHub 仓库，本地 `upstream` remote 一次只能指向其一。切到 `mainline` 前，确保 `git -C /root/FlagGems remote get-url upstream` 指向 `flagos-ai/FlagGems`（experimental 则指向 `-Experimental`）。target 只切换「PR 目标仓库 + base 分支」，不改本地 remote 名。
+
+下文命令示例默认 `experimental`；投 `mainline` 时给相关命令补 `--target mainline`。
 
 ## Workflow（模型只需调用 3 个命令）
 
@@ -212,11 +227,14 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry
 ### Phase 1: Preparation
 ```bash
 cd /root/FlagGems
+# experimental（默认）：分支基于 upstream/infra-ci
 git checkout -b pr/<op> upstream/infra-ci
+# mainline：先确保 upstream 指向 flagos-ai/FlagGems，再基于 upstream/master
+#   git checkout -b pr/<op> upstream/master
 ```
 确认算子不存在于上游。
 ❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，cherry-pick 容易带入旧基线并造成 PR merge conflict。
-❌ **禁止 rebase** — 分支基于 upstream/infra-ci 创建，不需要 rebase。
+❌ **禁止 rebase** — 分支基于所选 target 的 base（infra-ci 或 master）创建，不需要 rebase。
 
 ### Phase 2: Extract Code（一步完成，禁止手动编写）
 ```bash
@@ -233,8 +251,9 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_work
 ### Phase 3-7: Validate, Test, Submit（一步完成，禁止手动跳过）
 ```bash
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.py <op> --repo-dir /root/FlagGems --gpu <N>
+# 投 mainline 时加 --target mainline
 ```
-脚本串行执行 9 步：check_operator → pre-commit → **本地测试** → **本地 benchmark** → PR描述生成 → commit → push → 创建 PR → 回填链接。
+脚本串行执行 9 步：check_operator → pre-commit → **本地测试** → **本地 benchmark** → PR描述生成 → commit → push → 创建 PR → 回填链接。所选 target 的 upstream 仓库 / base 分支会贯穿全部步骤（fetch、冲突检查、PR base）。
 **任何正确性/注册/测试/benchmark 可运行性步骤失败立即中断退出。不允许手动执行单独步骤来绕过。低于 speedup 阈值只记录 warning，不中断。**
 
 ❌ **禁止手动创建 PR** — 不允许直接调用 `gh pr create` / `gh pr edit` / `gh pr merge`；创建 PR 和 PR body 必须由 `submit_operator.py` 完成。
@@ -244,6 +263,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
 ❌ **禁止跳过 benchmark** — 无性能数据的 PR 不提交。benchmark 失败时修复代码或放弃该算子；benchmark 跑通但 speedup 低于阈值允许提交，只在日志和 PR 描述中如实展示。
 
 可选参数：
+- `--target <experimental|mainline>` — 提交目标预设（默认 `experimental`）。决定 upstream 仓库、base 分支、fork owner、push。
 - `--dry-run` — 只验证不提交（调试用，仍会运行测试和 benchmark）
 - `--gpu <N>` — 测试/benchmark 用的 GPU 编号（默认 `0`）。**脚本内部会按此值设置 `CUDA_VISIBLE_DEVICES`，并覆盖命令行外层 `CUDA_VISIBLE_DEVICES` 前缀，因此选卡必须用 `--gpu`，写在命令前的 `CUDA_VISIBLE_DEVICES=<N>` 会被忽略。**
 - `--token`、`--source-name`、`--canonical-name`、`--impl-name` — 高级覆盖项，一般用默认即可。
@@ -255,6 +275,7 @@ PR 收到 reviewer comments 后，批量获取并逐 PR 修复。
 ```bash
 # 拉取所有待处理 comments（默认 upstream=flagos-ai/FlagGems-Experimental, fork-owner=Yukun-Cui）
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/fetch_review_comments.py
+# mainline 的 PR：--repo flagos-ai/FlagGems
 # JSON 格式供程序化处理：加 --json
 ```
 
@@ -267,6 +288,7 @@ cd /root/FlagGems
 git checkout <branch>
 # 一键 rebase + 自动解冲突 + push（默认 base=infra-ci, fork=origin）
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/rebase_and_resolve.py --repo-dir .
+# mainline：--base master
 ```
 
 手动控制时，冲突可单独调用解决脚本后 `git add` + `git rebase --continue`：
@@ -291,7 +313,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUMBER> --dry-run   # 只分析
 ```
 
-自动修复：无关文件混入 commit（reset + 只 stage 算子文件）、isort/black 格式错误（修复后 amend）。签名不匹配、CPU 后端不支持等只诊断，需人工处理。默认 `base=infra-ci`、push remote=`origin`，可用 `FLAGGEMS_BASE` / `FLAGGEMS_PUSH_REMOTE` 覆盖。
+自动修复：无关文件混入 commit（reset + 只 stage 算子文件）、isort/black 格式错误（修复后 amend）。签名不匹配、CPU 后端不支持等只诊断，需人工处理。默认 `base=infra-ci`、push remote=`origin`，可用 `FLAGGEMS_BASE` / `FLAGGEMS_PUSH_REMOTE` 覆盖（mainline：`FLAGGEMS_BASE=master`）。
 
 ## References
 

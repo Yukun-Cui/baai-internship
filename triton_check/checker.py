@@ -68,7 +68,7 @@ def load_ops_list(path: str) -> list[str]:
     return ops
 
 
-def find_op_file_in_dir(ops_dir: Path, op_name: str) -> Path | None:
+def find_op_file_in_dir(ops_dir: Path, op_name: str, diff_base: str = "infra-ci") -> Path | None:
     """Find the actual .py file for an operator in a directory.
 
     Handles naming variations: op_name='triu_' -> triu.py or triu_.py,
@@ -95,7 +95,7 @@ def find_op_file_in_dir(ops_dir: Path, op_name: str) -> Path | None:
     # Fallback: find any new .py file via git diff
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", "master", "--diff-filter=A"],
+            ["git", "diff", "--name-only", diff_base, "--diff-filter=A"],
             cwd=str(ops_dir.parent.parent.parent.parent),
             capture_output=True, text=True, timeout=5,
         )
@@ -115,6 +115,8 @@ def scan_operators(config: dict, ops_filter: list[str] = None) -> list[dict]:
     flaggems_dir = Path(config["flaggems_dir"])
     scan_mode = config.get("scan_mode", "single_worktree")
     scan_cfg = config.get("scan", {})
+    # Base ref for the git-diff fallback (experimental=infra-ci, mainline=master)
+    diff_base = config.get("diff_base", "infra-ci")
     operators = []
 
     if scan_mode == "multi_worktree":
@@ -136,7 +138,7 @@ def scan_operators(config: dict, ops_filter: list[str] = None) -> list[dict]:
             if scan_cfg.get("nvidia_ops", True):
                 ops_dir = base / "src" / "flag_gems" / "ops"
                 if ops_dir.is_dir():
-                    op_file = find_op_file_in_dir(ops_dir, op_name)
+                    op_file = find_op_file_in_dir(ops_dir, op_name, diff_base)
                     if op_file:
                         operators.append({
                             "name": op_name,
@@ -158,7 +160,7 @@ def scan_operators(config: dict, ops_filter: list[str] = None) -> list[dict]:
                     ops_subdir = vendor_dir / "ops"
                     if not ops_subdir.is_dir():
                         continue
-                    op_file = find_op_file_in_dir(ops_subdir, op_name)
+                    op_file = find_op_file_in_dir(ops_subdir, op_name, diff_base)
                     if op_file:
                         operators.append({
                             "name": op_name,

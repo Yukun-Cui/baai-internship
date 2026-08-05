@@ -16,7 +16,7 @@ specialized operator PRs: code review, compliance validation, pre-commit checks,
 and direct submission to upstream (push to fork then immediately create upstream PR with full
 description and speedup data).
 
-**摩尔线程特化的本质：覆盖已有通用算子。** 通用算子已存在于 `src/flag_gems/ops/`（在 master 分支上），
+**摩尔线程特化的本质：覆盖已有通用算子。** 通用算子已存在于 `src/flag_gems/ops/`（在 infra-ci 分支上），
 摩尔线程特化只是为它提供 MUSA 上更快的 Triton 实现，运行时由 `runtime.replace_customized_ops()`
 自动替换。因此测试 (`tests/test_<op>.py`) 和 benchmark (`benchmark/test_<op>.py`) 通常**已存在于上游**，
 本 skill **复用它们验证**，**不新写、不修改**。

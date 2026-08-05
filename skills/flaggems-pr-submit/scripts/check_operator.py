@@ -39,6 +39,7 @@ import yaml
 
 from name_plan import load_name_plan
 from paths import detect_underscore_conflict, resolve_op_names
+from targets import add_target_args, resolve_target
 
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
 #
@@ -84,9 +85,13 @@ def section(msg):
 
 
 class OperatorChecker:
-    def __init__(self, op_name, repo_dir):
+    def __init__(self, op_name, repo_dir, upstream_remote="upstream", base="infra-ci"):
         self.op_name = op_name
         self.repo_dir = repo_dir
+        # 上游 ref（如 upstream/infra-ci 或 upstream/master），由 target 决定
+        self.upstream_ref = f"{upstream_remote}/{base}"
+        self.upstream_remote = upstream_remote
+        self.base = base
         self.errors = []
         self.warnings = []
 
@@ -858,33 +863,34 @@ class OperatorChecker:
 
     def check_upstream_conflict(self):
         section("上游冲突检查")
+        ref = self.upstream_ref
         upstream_ref = subprocess.run(
-            ["git", "rev-parse", "--verify", "upstream/infra-ci"],
+            ["git", "rev-parse", "--verify", ref],
             capture_output=True,
             text=True,
             cwd=self.repo_dir,
         )
         if upstream_ref.returncode != 0:
-            self.errors.append("缺少 upstream/infra-ci；请先执行 git fetch upstream master")
-            fail("找不到 upstream/infra-ci，无法证明分支无冲突")
+            self.errors.append(f"缺少 {ref}；请先执行 git fetch {self.upstream_remote} {self.base}")
+            fail(f"找不到 {ref}，无法证明分支无冲突")
             return
 
         try:
             result = subprocess.run(
-                ["git", "show", f"upstream/infra-ci:src/flag_gems/ops/{self.op_name}.py"],
+                ["git", "show", f"{ref}:src/flag_gems/ops/{self.op_name}.py"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
             )
             if result.returncode == 0:
-                self.errors.append(f"算子 {self.op_name} 已存在于上游 upstream/infra-ci")
+                self.errors.append(f"算子 {self.op_name} 已存在于上游 {ref}")
                 fail(f"算子已存在于上游! 不应提交此 PR")
                 return
         except FileNotFoundError:
             pass
 
         merge_tree = subprocess.run(
-            ["git", "merge-tree", "--write-tree", "HEAD", "upstream/infra-ci"],
+            ["git", "merge-tree", "--write-tree", "HEAD", ref],
             capture_output=True,
             text=True,
             cwd=self.repo_dir,
@@ -892,24 +898,24 @@ class OperatorChecker:
         if merge_tree.returncode != 0:
             output = (merge_tree.stdout + "\n" + merge_tree.stderr).strip()
             self.errors.append(
-                "当前分支与 upstream/infra-ci 存在 merge conflict；请基于最新 upstream/infra-ci 重新创建分支"
+                f"当前分支与 {ref} 存在 merge conflict；请基于最新 {ref} 重新创建分支"
             )
-            fail("当前分支无法与 upstream/infra-ci 无冲突合并")
+            fail(f"当前分支无法与 {ref} 无冲突合并")
             if output:
                 print(output[:2000])
             return
 
-        ok(f"算子 {self.op_name} 未在上游发现冲突，且当前分支可与 upstream/infra-ci 无冲突合并")
+        ok(f"算子 {self.op_name} 未在上游发现冲突，且当前分支可与 {ref} 无冲突合并")
 
     def check_git_commit_message(self):
         section("Git Commit 检查")
         try:
-            # Two-dot range: only commits reachable from HEAD but not upstream/infra-ci
+            # Two-dot range: only commits reachable from HEAD but not upstream base
             # (i.e. this branch's own commits). Three-dot symmetric difference with -1
             # would sort by date and could pick a newer upstream commit whose message
             # legitimately carries human Co-authored-by trailers, causing a false positive.
             result = subprocess.run(
-                ["git", "log", "upstream/infra-ci..HEAD", "--format=%B"],
+                ["git", "log", f"{self.upstream_ref}..HEAD", "--format=%B"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
@@ -1165,7 +1171,7 @@ class OperatorChecker:
         section("单算子 PR 检查")
         try:
             result = subprocess.run(
-                ["git", "diff", "--name-only", "upstream/infra-ci...HEAD"],
+                ["git", "diff", "--name-only", f"{self.upstream_ref}...HEAD"],
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
@@ -2055,9 +2061,14 @@ def main():
     )
     parser.add_argument("--list-files", action="store_true", help="仅输出涉及的文件列表")
     parser.add_argument("--strict", action="store_true", help="严格模式: warning 也视为失败")
+    add_target_args(parser)
     args = parser.parse_args()
 
-    checker = OperatorChecker(args.operator, args.repo_dir)
+    target = resolve_target(args)
+    checker = OperatorChecker(
+        args.operator, args.repo_dir,
+        upstream_remote=target.upstream_remote, base=target.base,
+    )
 
     if args.list_files:
         for f in checker.get_changed_files():

@@ -125,19 +125,19 @@ fi
 mkdir -p "$WORKTREE_BASE_DIR"
 
 # --- Pre-fetch upstream once (avoid parallel lock contention on .git) ---
-echo "[PREP] Fetching upstream/master..."
+echo "[PREP] Fetching ${UPSTREAM_REMOTE}/${BASE_BRANCH}..."
 cd "$REPO_DIR"
 fetch_ok=false
 for attempt in 1 2 3; do
-    if git fetch upstream master --quiet; then
+    if git fetch "$UPSTREAM_REMOTE" "$BASE_BRANCH" --quiet; then
         fetch_ok=true
         break
     fi
-    echo "[WARN] git fetch upstream master failed (attempt $attempt/3); retrying..."
+    echo "[WARN] git fetch ${UPSTREAM_REMOTE} ${BASE_BRANCH} failed (attempt $attempt/3); retrying..."
     sleep $((attempt * 5))
 done
 if ! $fetch_ok; then
-    echo "[ERROR] git fetch upstream master failed"
+    echo "[ERROR] git fetch ${UPSTREAM_REMOTE} ${BASE_BRANCH} failed"
     exit 1
 fi
 echo "[PREP] Fetch done."
