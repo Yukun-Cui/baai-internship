@@ -66,3 +66,7 @@ python3 ./deepseek-workflow/scripts/new_task.py \
 - `__pycache__/`、临时输出、压缩包和大文件
 
 每个工具可独立使用，细节见对应目录下的 README。
+
+## 鸣谢
+
+本仓库基于 [@XDYuanzhuLee](https://github.com/XDYuanzhuLee) 的 [baai-internship](https://github.com/XDYuanzhuLee/baai-internship) 项目，在其思路与工作基础上整理、扩展而来。感谢原作者的分享。
