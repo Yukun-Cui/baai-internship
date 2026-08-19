@@ -139,6 +139,7 @@ device:
 
 # 执行参数
 max_retries: 3                # 失败重试次数
+max_concurrency: 5            # 并发 API 任务上限（0=不限，仅受 GPU 数量约束）
 timeout_per_op: 9600          # 单个算子超时时间（秒）
 budget_per_op: 10000000.0     # 单个算子预算（tokens）
 poll_interval: 10             # 状态轮询间隔（秒）
@@ -333,6 +334,7 @@ python3 fix_worktree_import.py --pytest tests/test_xxx.py -m <op> -vs
 - 调整 `timeout_per_op` 以适应不同复杂度的算子
 - 合理设置 `budget_per_op` 避免过度消耗 API 额度
 - 对于简单算子，可以降低 `max_retries` 节省时间
+- 通过 `max_concurrency` 限制并发任务数，避免触发 API 速率限制（0 表示不限，仅受 GPU 数量约束）
 
 ## 贡献指南
 
