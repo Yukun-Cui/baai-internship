@@ -909,6 +909,7 @@ def run(args):
     max_retries = config.get("max_retries", 3)
     timeout_per_op = config.get("timeout_per_op", 1800) or 0
     poll_interval = config.get("poll_interval", 10)
+    max_concurrency = config.get("max_concurrency", 0) or 0
     python_path = config.get("python_path", sys.executable)
     base_branch = config.get("base_branch", "infra-ci")
     branch_prefix = config.get("branch_prefix", "pr/")
@@ -1040,12 +1041,16 @@ def run(args):
 
     logger.info(
         f"Starting orchestrator: {len(ops)} operators, {len(device_mgr.gpu_ids)} GPUs, "
+        f"max_concurrency={max_concurrency or 'unlimited'}, "
         f"max_retries={max_retries}" + (" [DRY-RUN]" if dry_run else "")
     )
 
     while (queue or running) and not shutdown_requested:
         # Launch new tasks if GPUs are available
         while queue and not shutdown_requested:
+            # Respect API concurrency limit (0 = unlimited, bounded only by GPUs)
+            if max_concurrency and len(running) >= max_concurrency:
+                break
             gpu_id = device_mgr.acquire()
             if gpu_id is None:
                 break

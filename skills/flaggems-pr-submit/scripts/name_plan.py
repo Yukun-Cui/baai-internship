@@ -121,7 +121,13 @@ def _impl_from_ops_init(worktree_dir: str, source_name: str) -> str | None:
     return None
 
 
-def _impl_from_kernel_file(worktree_dir: str, source_name: str) -> str | None:
+def _impl_from_kernel_file(worktree_dir: str, source_name: str | None, source_op_id: str | None = None) -> str | None:
+    # The kernel module may define several non-jit helpers (e.g. ``_pair``) in
+    # addition to the operator wrapper. Prefer a function whose name matches the
+    # source op id (``_convolution_double_backward``) over the first arbitrary
+    # helper, since the wrapper is the real public entry point.
+    if source_name is None:
+        return None
     kernel_path = Path(worktree_dir) / f"src/flag_gems/ops/{source_name}.py"
     if not kernel_path.is_file():
         return None
@@ -141,13 +147,20 @@ def _impl_from_kernel_file(worktree_dir: str, source_name: str) -> str | None:
         )
         if not is_jit:
             public.append(node.name)
+    # Prefer the function matching the source op id (with or without leading
+    # underscore) — that is the operator wrapper, not a incidental helper.
+    if source_op_id:
+        for cand in (source_op_id, f"_{source_op_id}", source_name):
+            if cand in public:
+                return cand
     return _first_public_name(public)
 
 
 def infer_impl_name(worktree_dir: str, source_name: str) -> str:
+    source_op_id = op_id(source_name)
     return (
         _impl_from_ops_init(worktree_dir, source_name)
-        or _impl_from_kernel_file(worktree_dir, source_name)
+        or _impl_from_kernel_file(worktree_dir, source_name, source_op_id)
         or source_name
     )
 
@@ -158,6 +171,7 @@ def build_name_plan(
     source_name: str | None = None,
     canonical_name: str | None = None,
     impl_name: str | None = None,
+    worktree_dir: str | None = None,
 ) -> NamePlan:
     clean = input_name.replace("aten::", "").strip()
     if not clean:
@@ -167,18 +181,27 @@ def build_name_plan(
     canonical = canonical_name or _valid_norm(lookup_result) or clean
 
     source = source_name
-    worktree = None
+    worktree = worktree_dir
     if source:
         found_source, found_worktree = _find_worktree_source(repo_dir, source)
         source = found_source or source
-        worktree = found_worktree or str(Path(repo_dir) / ".worktrees" / f"gen-{source}")
+        if worktree is None:
+            worktree = found_worktree or str(Path(repo_dir) / ".worktrees" / f"gen-{source}")
     else:
-        source, worktree = _find_worktree_source(repo_dir, clean)
-        if source is None and canonical != clean:
-            source, worktree = _find_worktree_source(repo_dir, canonical)
-        if source is None:
-            source = clean
-            worktree = str(Path(repo_dir) / ".worktrees" / f"gen-{source}")
+        if worktree is None:
+            source, worktree = _find_worktree_source(repo_dir, clean)
+            if source is None and canonical != clean:
+                source, worktree = _find_worktree_source(repo_dir, canonical)
+            if source is None:
+                source = clean
+                worktree = str(Path(repo_dir) / ".worktrees" / f"gen-{source}")
+        else:
+            # worktree_dir override supplied without source_name: derive source
+            # from the worktree directory name (gen-<source>).
+            source = source_name or clean
+            found_source, _ = _find_worktree_source(repo_dir, source)
+            if found_source:
+                source = found_source
 
     impl = impl_name or infer_impl_name(worktree, source)
 

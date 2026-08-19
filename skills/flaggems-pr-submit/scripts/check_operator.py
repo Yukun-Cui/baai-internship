@@ -38,7 +38,7 @@ import sys
 import yaml
 
 from name_plan import load_name_plan
-from paths import detect_underscore_conflict, resolve_op_names
+from paths import detect_underscore_conflict, id_to_mark, resolve_op_names
 from targets import add_target_args, resolve_target
 
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
@@ -489,7 +489,8 @@ class OperatorChecker:
 
         # yaml kind 合理性检查：常见误用是所有算子都写 Math
         VALID_KINDS = {"Math", "NeuralNetwork", "Tensor", "LinearAlg", "BLAS",
-                       "Reduction", "Distribution", "MoE", "Data", "DSA"}
+                       "Reduction", "Distribution", "MoE", "Data", "DSA",
+                       "Convolution", "Sparse", "Sorting"}
         kind_list = found.get("kind", [])
         for k in kind_list:
             if k not in VALID_KINDS:
@@ -592,6 +593,11 @@ class OperatorChecker:
 
         if "utils.to_reference" in content:
             ok("使用 utils.to_reference 获取 golden reference")
+        elif re.search(r"\bref_out\s*=|\bref_\w*\s*=\s*torch\.|\bexpected\s*=", content):
+            # The test computes its own golden reference (common for ops with no
+            # CPU implementation, e.g. cuSPARSELt ops validated against a sibling
+            # ATen op on device). That is a legitimate reference source.
+            ok("测试自行计算 golden reference（无需 utils.to_reference）")
         else:
             self.warnings.append("测试文件未使用 utils.to_reference")
             warn("未使用 utils.to_reference — 确认 golden reference 来源")
@@ -701,7 +707,7 @@ class OperatorChecker:
             warn("包含 print() — 建议移除")
 
         # op_name 检查（应使用去掉下划线的 op_id）
-        if self.has_leading_underscore:
+        if self.has_leading_underscore and self.op_name != self.op_id:
             wrong_op_name = f'op_name="{self.op_name}"'
             correct_op_name = f'op_name="{self.op_id}"'
             if wrong_op_name in content:
@@ -738,10 +744,30 @@ class OperatorChecker:
     def _check_private_torch_api(self, content, file_label):
         """检查测试/benchmark 中是否直接调用了 torch._ 私有 API。
         私有 API 在不同 PyTorch 版本中可能不存在，应使用公开 API。
+
+        例外：算子本身就是带前导下划线的 ATen op（如 ``torch._cslt_compress``），
+        其测试/benchmark 调用自身是正常的 aten dispatch，属于 Rule 8 允许的
+        "被测算子本身的 aten dispatch"。把这些自身调用加入白名单。
         """
         private_calls = re.findall(r"torch\.(_[a-z]\w*)\(", content)
         # 过滤掉 torch._C 等模块级调用和常见合法用法
         skip = {"_C", "_jit_internal", "_utils", "_dynamo"}
+        # 白名单算子自身的调用：op_name 与去前导下划线的 op_id 都可能出现在调用处。
+        skip.add(self.op_name.lstrip("_") if self.op_name.startswith("_") else "")
+        if self.has_leading_underscore:
+            skip.add(self.op_name)  # e.g. "_cslt_compress"
+        # 白名单同族 ATen op：被测算子可能依赖其它真实的 cuSPARSELt / aten 算子作为
+        # 输入构造或参考实现，且这些算子没有公开替代（不是随意私有 API）。例如
+        # _cslt_sparse_mm_search 的测试需要 torch._cslt_compress（构造稀疏输入）和
+        # torch._cslt_sparse_mm（验证 alg_id 的正确性）。它们都是 dir(torch) 中的真实
+        # aten 算子。只对以 _ 开头的算子启用，按"家族前缀"放宽。
+        if self.has_leading_underscore:
+            family_prefixes = {
+                "_cslt": ("_cslt_compress", "_cslt_sparse_mm", "_cslt_sparse_mm_search"),
+            }
+            for prefix, members in family_prefixes.items():
+                if self.op_name.startswith(prefix):
+                    skip.update(members)
         private_calls = [c for c in private_calls if c not in skip]
         if private_calls:
             unique = sorted(set(private_calls))
@@ -769,6 +795,9 @@ class OperatorChecker:
             r"\[torch\.float32,\s*torch\.float16\]",
             r"\[torch\.float32,\s*torch\.float64\]",
             r"\[torch\.float16,\s*torch\.float32\]",
+            # cuSPARSELt-style: only half precisions (no float32) supported.
+            r"\[torch\.float16,\s*torch\.bfloat16\]",
+            r"\[torch\.bfloat16,\s*torch\.float16\]",
         ]
         # 单 dtype 硬编码模式
         single_dtype_patterns = [
@@ -818,8 +847,16 @@ class OperatorChecker:
                 fail(f"dtype 硬编码: {match.group()} → 应使用 {correct_const}（或加注释说明原因）")
                 return
 
-        if correct_const.split(".")[-1] in content or "FLOAT_DTYPES" in content or "INT_DTYPES" in content:
+        if (correct_const.split(".")[-1] in content or "FLOAT_DTYPES" in content
+                or "INT_DTYPES" in content or "COMPLEX_DTYPES" in content
+                or "BOOL_DTYPES" in content):
             ok("dtype 使用统一常量")
+        elif not re.search(r'parametrize\(\s*["\']dtype["\']', content):
+            # Scalar/fixed-dtype ops (e.g. _amp_update_scale_) have no dtype
+            # parametrization and no dtype list to hardcode — the inline
+            # ``dtype=torch.float32`` is part of the op's fixed signature, not
+            # a test dtype dimension. Nothing to enforce here.
+            ok("无 dtype 参数化（固定 dtype 算子，跳过 dtype 常量检查）")
         else:
             self.errors.append(f"{file_label}中未检测到标准 dtype 常量，也未找到带注释的硬编码 dtype")
             fail(f"未检测到 {correct_const} 且无带注释的 dtype 硬编码")
@@ -1138,27 +1175,53 @@ class OperatorChecker:
             sig = inspect.signature(wrapper_func)
             params = list(sig.parameters.keys())
 
-            # 尝试用小 tensor 调用
-            test_input = torch.randn(2, 3, 4, 4, device="cuda", dtype=torch.float32)
-            try:
-                # 通用调用：大部分 op 第一个参数是 input tensor
-                kwargs = {params[0]: test_input}
+            # 复数算子（如 _conj_physical）对非复数输入会短路返回原 tensor，
+            # 导致禁用 triton.jit 后结果也"不变" → Layer 2 误报。对这类算子改用
+            # complex64 输入；用源码嗅探判断是否为复数算子。
+            is_complex_op = (
+                "is_complex" in kernel_src
+                or "view_as_real" in kernel_src
+                or ".conj(" in kernel_src
+                or "resolve_conj" in kernel_src
+            )
+            input_dtypes = [torch.complex64, torch.float32] if is_complex_op else [torch.float32]
 
-                is_hack, reason = anti_hack.dual_execution_check(
-                    lambda **kw: wrapper_func(**kw), kwargs, rtol=1e-3, atol=1e-3
-                )
+            last_err = None
+            resolved = False
+            for dt in input_dtypes:
+                test_input = torch.randn(2, 3, 4, 4, device="cuda", dtype=dt)
+                try:
+                    # 通用调用：大部分 op 第一个参数是 input tensor
+                    kwargs = {params[0]: test_input}
 
-                if is_hack:
-                    self.errors.append(
-                        f"anti-hack Layer 2 失败: kernel 禁用 triton.jit 后结果不变，"
-                        f"说明未使用 Triton 进行实际计算。{reason}"
+                    is_hack, reason = anti_hack.dual_execution_check(
+                        lambda **kw: wrapper_func(**kw), kwargs, rtol=1e-3, atol=1e-3
                     )
-                    fail(f"Layer 2 失败: kernel 未使用 Triton 计算!\n    {reason}")
-                else:
-                    ok("anti-hack Layer 2 通过（kernel 确实依赖 Triton 计算）")
-            except Exception as e:
-                # 如果调用失败（参数不匹配等），不阻塞
-                ok(f"Layer 2 跳过（调用异常: {type(e).__name__}，不影响提交）")
+
+                    if is_hack:
+                        last_err = reason
+                        # 复数算子用 float32 输入必然短路返回，视为误报，换 complex 重试
+                        if dt == torch.float32 and is_complex_op:
+                            continue
+                        self.errors.append(
+                            f"anti-hack Layer 2 失败: kernel 禁用 triton.jit 后结果不变，"
+                            f"说明未使用 Triton 进行实际计算。{reason}"
+                        )
+                        fail(f"Layer 2 失败: kernel 未使用 Triton 计算!\n    {reason}")
+                    else:
+                        ok("anti-hack Layer 2 通过（kernel 确实依赖 Triton 计算）")
+                        resolved = True
+                        break
+                except Exception as e:
+                    # 如果调用失败（参数不匹配等），不阻塞
+                    last_err = e
+                    if dt == torch.float32 and is_complex_op:
+                        continue
+                    ok(f"Layer 2 跳过（调用异常: {type(e).__name__}，不影响提交）")
+                    resolved = True
+                    break
+            if not resolved and last_err is not None:
+                ok(f"Layer 2 跳过（调用异常: {type(last_err).__name__}，不影响提交）")
         except ImportError as e:
             warn(f"Layer 2 跳过（导入失败: {e}）")
         except Exception as e:
@@ -1677,12 +1740,14 @@ class OperatorChecker:
                 )
                 fail(f"  _FULL_CONFIG 缺少 '{ifunc}' 注册")
 
-            # 3. test 函数
+            # 3. test 函数 — accept exact ``test_<inplace_id>`` or a descriptive
+            # suffix variant like ``test_<inplace_id>_tensor`` (generators often
+            # append a scenario suffix to inplace tests).
             test_has = False
             if os.path.isfile(self.test_path):
                 with open(self.test_path, "r") as f:
                     test_content = f.read()
-                if re.search(rf"def test_{re.escape(inplace_id)}\s*\(", test_content):
+                if re.search(rf"def test_{re.escape(inplace_id)}(?:\s*\(|_\w+\s*\()", test_content):
                     test_has = True
             if test_has:
                 ok(f"  测试函数 test_{inplace_id} 存在")
@@ -1941,7 +2006,8 @@ class OperatorChecker:
             ok(f"{label}覆盖了 _out 变体: {out_func}")
 
             # 验证 @pytest.mark.xxx_out 存在
-            expected_mark = f"@pytest.mark.{out_variant}"
+            # marker 名不能以下划线开头：前导下划线 id 的 mark 用 "underscore" 前缀替代。
+            expected_mark = f"@pytest.mark.{id_to_mark(out_variant)}"
             if expected_mark not in content:
                 self.errors.append(
                     f"{label}覆盖了 {out_variant} 但缺少 {expected_mark}"
@@ -1958,7 +2024,12 @@ class OperatorChecker:
                             f"{label}覆盖了 {out_variant} 但缺少 {expected_op_name}"
                         )
                         fail(f"{label}: 缺少 {expected_op_name}")
-                if not re.search(r"\bout\s*=", content):
+                # out benchmark 必须真的传入 out tensor。两种合法形式：
+                #   1) 文件中出现显式 ``out=`` 赋值；
+                #   2) 使用 ``*OutBenchmark`` 封装类（其 ``get_input_iter`` 在
+                #      base 类内构造 ``{"out": out}`` kwargs，文件文本里看不到 out=）。
+                uses_out_class = re.search(r"\b\w*OutBenchmark\(", content) is not None
+                if not re.search(r"\bout\s*=", content) and not uses_out_class:
                     self.warnings.append(
                         f"{label}覆盖了 {out_variant}，但未检测到 out= 参数；out benchmark 必须真的传入 out tensor"
                     )
@@ -2003,11 +2074,25 @@ class OperatorChecker:
             if import_lines == sorted_lines:
                 ok("import 行按字母序排列")
             else:
-                for i, (actual, expected) in enumerate(zip(import_lines, sorted_lines)):
-                    if actual != expected:
-                        self.warnings.append(f"ops/__init__.py import 顺序可能不对（{actual} vs {expected}）")
-                        warn(f"import 顺序可能不对 — isort 可自动修复")
+                # The repo-wide import order is a shared baseline that an operator PR
+                # must not re-sort wholesale (it would touch many unrelated ops).
+                # Only warn if the CURRENT operator's own import is misplaced;
+                # pre-existing order drift between other ops is out of scope.
+                op_module = self.op_name
+                op_index = None
+                for i, name in enumerate(import_lines):
+                    if name == op_module:
+                        op_index = i
                         break
+                if op_index is not None and import_lines[op_index] != sorted_lines[op_index]:
+                    self.warnings.append(
+                        f"ops/__init__.py import 顺序可能不对（{op_module} 位置异常）"
+                    )
+                    warn("import 顺序可能不对 — isort 可自动修复")
+                elif op_index is not None:
+                    ok("当前算子 import 位置正确（其余为既有基线顺序，不在本算子范围）")
+                else:
+                    ok("import 行存在既有乱序，但当前算子未导入，跳过")
 
     @staticmethod
     def _natural_sort_key(s):

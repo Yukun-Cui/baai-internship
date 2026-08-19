@@ -46,9 +46,14 @@ def id_to_mark(op_id):
 def detect_underscore_conflict(repo_dir, op_name):
     """探测 op_name 是否与裸算子（去前导下划线后）冲突。
 
-    判据（任一命中即视为冲突）：
-    - ops/ 目录存在裸算子 kernel 文件 <bare>.py
-    - operators.yaml 中存在裸 id <bare>
+    判据：ops/ 目录存在裸算子 kernel 文件 <bare>.py 即视为冲突。
+
+    仅看 kernel 文件而不单看 operators.yaml 中的裸 id，因为后者会导致
+    自引用死循环：提取脚本刚为本算子插入的裸 id（默认规则去掉前导下划线）
+    会被 check_operator 当作冲突信号，从而反过来要求保留前导下划线，而一旦
+    保留又不再冲突 —— 两种状态都会自相矛盾。真正的冲突（如 `_conj_physical`
+    vs 已存在的 `conj_physical`）总是伴随着裸算子的 kernel 文件，因此以 kernel
+    文件为准既能识别真实冲突，又避免本算子自身 yaml 条目造成的循环。
     """
     if not op_name.startswith("_"):
         return False
@@ -58,18 +63,6 @@ def detect_underscore_conflict(repo_dir, op_name):
     bare_kernel = os.path.join(repo_dir, "src/flag_gems/ops", f"{bare}.py")
     if os.path.isfile(bare_kernel):
         return True
-    yaml_path = os.path.join(repo_dir, "conf/operators.yaml")
-    if os.path.isfile(yaml_path):
-        try:
-            import yaml as _yaml
-
-            with open(yaml_path, "r") as f:
-                data = _yaml.safe_load(f)
-            for op in (data or {}).get("ops", []):
-                if op.get("id") == bare:
-                    return True
-        except Exception:
-            pass
     return False
 
 

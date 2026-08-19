@@ -420,7 +420,8 @@ def main():
     # pre-commit may modify files (format/import order), so rerun strict checker before tests.
     ok("pre-commit 后重新运行 check_operator.py (--strict)")
     run(
-        ["python", os.path.join(SCRIPTS_DIR, "check_operator.py"), op, "--repo-dir", repo, "--strict"],
+        ["python", os.path.join(SCRIPTS_DIR, "check_operator.py"), op,
+         "--repo-dir", repo, "--strict", "--target", target.name],
         cwd=repo,
         timeout=60,
     )
@@ -428,10 +429,16 @@ def main():
     # ── Step 3: 本地测试 ──
     step(3, "本地测试 (pytest)")
     test_file = f"tests/test_{op_id}.py"
+    # Prepend the repo's src/ to PYTHONPATH so tests import THIS repo's flag_gems
+    # (the system may have an editable install pointing at a different checkout).
+    test_env = {
+        "CUDA_VISIBLE_DEVICES": gpu,
+        "PYTHONPATH": os.path.join(repo, "src") + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    }
     result = run(
         ["python", "-m", "pytest", test_file, "-x", "-v", "--timeout=60"],
         cwd=repo, timeout=180, check=False, capture=True,
-        env={"CUDA_VISIBLE_DEVICES": gpu},
+        env=test_env,
     )
     if result is None or result.returncode != 0:
         output = (result.stdout[-1000:] if result else "") + (result.stderr[-500:] if result else "")
@@ -444,7 +451,7 @@ def main():
     result = run(
         ["python", "-m", "pytest", bench_file, "--level", "core", "-s"],
         cwd=repo, timeout=300, check=False, capture=True,
-        env={"CUDA_VISIBLE_DEVICES": gpu},
+        env=test_env,
     )
     if result is None or result.returncode != 0:
         output = (result.stdout[-1000:] if result else "") + (result.stderr[-500:] if result else "")
