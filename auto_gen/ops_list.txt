@@ -3,14 +3,24 @@
 # Supports: 'round', 'aten::round', 'aten::round.Tensor'
 # The script will automatically strip 'aten::' prefix and overload suffixes
 
-_fused_adagrad_
-_fused_sdp_choice
-_fused_sgd_
-_gather_sparse_backward
-_histogramdd_bin_edges
-_histogramdd_from_bin_cts
-_histogramdd_from_bin_tensors
-_index_put_impl_
-_log_softmax
-_logcumsumexp
-_lu_with_info
+quantize_per_channel
+quantize_per_tensor
+quantize_per_tensor_dynamic
+quantized_batch_norm
+quantized_gru_cell
+quantized_lstm_cell
+quantized_max_pool1d
+quantized_max_pool2d
+quantized_max_pool3d
+quantized_rnn_relu_cell
+quantized_rnn_tanh_cell
+put
+put_
+row_indices
+row_indices_copy
+row_stack
+rsub
+slice_copy
+slogdet
+smm
+_stack
