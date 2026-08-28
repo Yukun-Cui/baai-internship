@@ -52,6 +52,8 @@
 - [ ] 使用 `utils.POINTWISE_SHAPES`/`utils.FLOAT_DTYPES` 等标准参数
 - [ ] 新增 `skip` / `skipif` / `xfail` 时 reason 包含 issue URL 或 `#<number>`
 - [ ] **禁止 print()**
+- [ ] **KernelGen 算子测试禁止 `flag_gems.use_gems()`**（CI gate `check-kernelgen-tests` 会 fail）— 直接调 `flag_gems.<op>(...)`，保留 `torch.ops.aten.<op>` 作 reference，参考 `tests/test_nested_sum_backward.py`
+- [ ] **结果依赖设备本身的算子**（如 `_fused_sdp_choice`，A 类）在 `--ref=cpu` 路径不可比，测试体内加 `if utils.TO_CPU: pytest.skip(...)`（不要用模块级 `pytestmark=skipif`）；GPU-only 算子（B 类）用 `@pytest.mark.skipif(cfg.TO_CPU, reason="...")`；CPU/GPU 数值差异（C 类）用缩参/对齐（详见 `references/common-issues.md`）
 
 ## Benchmark 文件规范
 

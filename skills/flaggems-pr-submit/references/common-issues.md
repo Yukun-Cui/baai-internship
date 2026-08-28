@@ -32,6 +32,22 @@
 - 测例的 mark 必须与算子 ID 严格匹配
 - 错误示例：算子名 `special_erfcx` 但 mark 是 `@pytest.mark.erfcx`
 
+### 测试文件禁止 use_gems()
+- 算子的 `tests/test_<op>.py` **不得** 调用 `flag_gems.use_gems()` / `use_gems()`，否则 CI gate `check-kernelgen-tests`（`tools/ci_checks/check_kernelgen_tests.py`）直接 fail（对所有算子 PR 都跑，不挑 label）。
+- 生成器常产出 `with flag_gems.use_gems():\n    res = torch.ops.aten.<op>(...)` 的写法，**提交前必须改掉**。
+- 正确写法：直接调 `flag_gems.<op>(res_inputs...)` 跑 Gems kernel，保留 `torch.ops.aten.<op>(ref_inputs...)` 作 reference，`utils.gems_assert_equal(res, ref)`，参考 `tests/test_nested_sum_backward.py`。
+- 仓库历史上有部分已 merge 算子（`hsplit`/`column_stack`/`flipud`/`fill_diagonal_`/`binomial`）仍含 `use_gems()`，属漏网/历史遗留，不要照抄。
+- `check_operator.py` 对所有算子在此项 error。
+
+### `--ref=cpu --quick` 跨设备参考（CI 第二 pass）
+`tools/test-op.sh` 对每个算子 PR 跑两遍测试：pass 1 正常 GPU 模式（ref 在 GPU）；**pass 2** `pytest test_<op>.py --ref=cpu --quick` 把 reference 搬 CPU（`utils.to_reference(inp)` `.to('cpu')`）、Gems 仍在 GPU，最后 `to_cpu` 拉回 CPU 比。仓库里 **57 个测试文件**都显式处理了 `TO_CPU`，说明这是普遍踩坑点。分三类：
+
+- **A. 设备相关算子（结果依赖输入设备本身）→ 必须 skip。** 典型 `_fused_sdp_choice`（返回 PyTorch 对该设备会 dispatch 的 `SDPBackend` 整数）：CPU 上 aten 只能选 math=0，GPU 上 Gems 选 fused(1/2/3)，二者都对但不可比 → `gems_assert_equal` 报 `Scalars are not equal!`。特征：算子返回「PyTorch 对当前设备的选择/查询结果」而非「计算结果」（dispatch choice、后端可用性探测、device-capability 查询）。修复：测试体内 `if utils.TO_CPU: pytest.skip(...)`。
+- **B. GPU-only 算子（CPU 无实现/语义不同）→ `skipif`。** aten 在 CPU 上没实现，reference 调用直接报错。修复：函数级 `@pytest.mark.skipif(cfg.TO_CPU, reason="Unsupported in CPU mode")`，参考 `tests/test_embedding.py:110`。
+- **C. CPU/GPU 合法数值差异 → 对齐 + 缩参。** 最常见。CPU/GPU 实现的浮点累加顺序、TF32、分支不同。修复：`if utils.TO_CPU: res = res.to('cpu')` 对齐（多数已封装在 `to_cpu`）、`parametrize(..., [1024] if cfg.TO_CPU or cfg.QUICK_MODE else [4096])` 缩参、`to_reference(inp, True)` 升 fp64 做 golden。
+
+**判断口诀**：提 PR 前问一句「这个算子输出会随输入所在设备变吗？」会 → A 类，体内 skip；CPU 有实现但行为/数值不同 → B/C 类。`check_operator.py` 对所有算子有启发式 warning：测试用 `torch.ops.aten.<op>` 当 reference 却无 `TO_CPU`/`skipif` 处理时提示人工确认（多数 pointwise/reduction 跨设备合法可比，命中只是提示，不阻断）。**不要用模块级** `pytestmark = pytest.mark.skipif(utils.TO_CPU, ...)`——`TO_CPU` 在 `pytest_configure` 才赋值，import 时恒 `False`，装饰器读不到。不要改 `tools/test-op.sh` 的 `NO_QUICK_CPU_TESTS`（infra，出算子 scope）。
+
 ## 3. Benchmark 问题
 
 ### 禁止自定义框架

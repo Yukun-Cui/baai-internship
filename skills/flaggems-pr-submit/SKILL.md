@@ -67,6 +67,8 @@ description: >
 51. **新提交分支必须新鲜且无冲突** — push 或请求 review 前 fetch upstream，并通过 `check_operator.py` 的上游冲突检查，证明当前分支可与 `upstream/infra-ci` 无冲突合并
 52. **Performance 描述必须清晰分组** — PR body 的 Performance 按 operator/variant 分 `###` 小节，表格包含 `dtype`、`Size`、Torch/Gems latency、Speedup；benchmark 输出含 TFLOPS 时必须记录 `TFLOPS` 列；每个 variant 单独给 Arithmetic Mean Speedup（加速比统计用算术平均）
 53. **backend 特化仅在需要时触发额外校验** — 只有当 PR 明确包含 `src/flag_gems/runtime/backend/**` 变更，或用户明确标注 `(muxi特化)` / `(tianshu特化)` 等 backend 特化时，才执行 backend specialization gate；普通算子不得被额外 backend 规则干扰
+54. **测试文件禁止 use_gems()** — 算子的 `tests/test_<op>.py` 不得调用 `flag_gems.use_gems()` / `use_gems()`（否则 CI gate `check-kernelgen-tests` 直接 fail，对所有算子 PR 都跑，不挑 label）。正确写法：直接调 `flag_gems.<op>(res_inputs...)` 跑 Gems kernel，保留 `torch.ops.aten.<op>(ref_inputs...)` 作 reference，最后 `utils.gems_assert_equal(res, ref)`，参考 `tests/test_nested_sum_backward.py`。`check_operator.py` 对所有算子在该项上 error。注意：仓库历史上部分已 merge 算子（`hsplit`/`column_stack`/`flipud`/`fill_diagonal_`/`binomial`）仍含 `use_gems()`，属漏网/历史遗留，**不要照抄**。
+55. **`--ref=cpu --quick` 跨设备参考风险** — CI 第二 pass（`tools/test-op.sh` 114 行）对每个算子 PR 跑 `pytest test_<op>.py --ref=cpu --quick`：reference 搬 CPU、Gems 仍在 GPU，最后 `to_cpu` 拉回 CPU 比。对**结果依赖输入所在设备**的算子（dispatch choice 如 `_fused_sdp_choice`、后端可用性探测、CUDA-only 实现、device-capability 查询），CPU ref 与 GPU Gems 不可比 → `gems_assert_equal` 报 `Scalars/数值 not equal`。判断口诀：提 PR 前问「这个算子输出会随输入所在设备变吗？」会 → 测试体内加 `if utils.TO_CPU: pytest.skip(...)`（不能用模块级 `pytestmark = skipif`，`TO_CPU` 在 `pytest_configure` 才赋值，import 时恒 `False`）；CPU 有实现但行为/数值不同 → `skipif(cfg.TO_CPU)` 或缩参对齐（参考 `tests/test_embedding.py:110`）。不要改 `tools/test-op.sh` 的 `NO_QUICK_CPU_TESTS`（infra，出算子 scope）。`check_operator.py` 对所有算子有启发式 warning：测试用 `torch.ops.aten.<op>` 当 reference 却无 `TO_CPU`/`skipif` 处理时提示人工确认（多数 pointwise/reduction 跨设备合法可比，命中只是提示，不阻断）。
 
 ### Review Hygiene Rules（普通算子 PR）
 
@@ -378,6 +380,8 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 | Kernel inline autotune 配置 | Rule 48 | warning |
 | Logger debug 文案格式 | Rule 47 | warning |
 | YAML description 单行长度 | Rule 49 | warning |
+| 测试 use_gems() 禁用 | Rule 54 | error |
+| `--ref=cpu` 跨设备参考启发式 | Rule 55 | warning |
 
 ## 模型必须人工检查的规则（无法自动化）
 
@@ -423,6 +427,11 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
   - 必须 inline 时需说明原因并对照 repo 现有例外模式
 - [ ] **分支新鲜度** — push 或请求 review 前是否 `git fetch upstream`，并让 `check_operator.py` 通过上游冲突检查？
   - 若上游冲突检查失败，本次新提交必须重新基于最新 `upstream/infra-ci` 创建分支并重新提取算子，不能带冲突提交上 PR。
+- [ ] **Rule 55 `--ref=cpu --quick` 跨设备参考** — 该算子输出会随输入所在设备变吗？（dispatch choice 如 `_fused_sdp_choice`、后端可用性探测、CUDA-only 实现、device-capability 查询）
+  - 判断方法：算子返回值是否是「PyTorch 对当前设备会做的选择/查询结果」而非「计算结果」。若是 → 必须在测试体内加 `if utils.TO_CPU: pytest.skip(...)`（CI 第二 pass 会把 ref 搬 CPU 导致不可比）
+  - CPU 有实现但行为/数值不同 → 函数级 `@pytest.mark.skipif(cfg.TO_CPU, reason="...")` 或缩参对齐（参考 `tests/test_embedding.py:110`）
+  - `check_operator.py` 对所有算子有启发式 warning：测试用 `torch.ops.aten.<op>` 当 reference 却无 `TO_CPU`/`skipif` 处理时提示；命中只提示，多数 pointwise/reduction 跨设备合法可比，需人工确认算子语义
+  - 不要用模块级 `pytestmark = pytest.mark.skipif(utils.TO_CPU, ...)`——`TO_CPU` 在 `pytest_configure` 才赋值，import 时恒 `False`，装饰器读不到
 
 ## 强制执行策略（模型必须遵守）
 

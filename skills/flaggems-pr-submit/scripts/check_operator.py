@@ -575,11 +575,19 @@ class OperatorChecker:
             self.warnings.append("测试文件中未找到 accuracy_utils 导入")
             warn("未找到 accuracy_utils 导入")
 
-        if "flag_gems.use_gems()" in content:
-            ok("使用 flag_gems.use_gems() 上下文")
+        # Rule 54: CI gate check-kernelgen-tests (tools/ci_checks/check_kernelgen_tests.py)
+        # 禁止测试文件调用 flag_gems.use_gems()，否则 CI 直接 fail。正确写法：直接调
+        # flag_gems.<op>(...) 跑 Gems kernel，保留 torch.ops.aten.<op> 作 reference
+        # （参考 tests/test_nested_sum_backward.py）。
+        if "flag_gems.use_gems()" in content or "use_gems(" in content:
+            self.errors.append(
+                "测试文件调用了 flag_gems.use_gems()，会被 CI gate "
+                "check-kernelgen-tests 拒绝；改为直接调 flag_gems.<op>(...)，"
+                "保留 torch.ops.aten.<op> 作 reference"
+            )
+            fail("测试禁止 use_gems() — CI gate check-kernelgen-tests 会 fail")
         else:
-            self.warnings.append("测试文件中未使用 flag_gems.use_gems()")
-            warn("未找到 flag_gems.use_gems() — 确认测试方式是否正确")
+            ok("测试未使用 use_gems()（符合 CI gate）")
 
         if "gems_assert_close" in content or "gems_assert_equal" in content:
             ok("使用 gems_assert_close/equal 进行比较")
@@ -601,6 +609,40 @@ class OperatorChecker:
         else:
             self.warnings.append("测试文件未使用 utils.to_reference")
             warn("未使用 utils.to_reference — 确认 golden reference 来源")
+
+        # Rule 55: --ref=cpu --quick 跨设备参考风险（启发式 warning）
+        # CI 第二 pass (tools/test-op.sh) 用 --ref=cpu --quick：reference 搬 CPU，
+        # Gems 仍在 GPU。对于「结果依赖输入所在设备」的算子（dispatch choice、
+        # 后端可用性探测、CUDA-only 实现、device-capability 查询），CPU ref 与
+        # GPU Gems 不可比 → gems_assert_equal 报 Scalars/数值 not equal。
+        # 信号：测试用 torch.ops.aten.<op> 当 reference，但既没有 if utils.TO_CPU
+        # 跳过/对齐，也没有 skipif(cfg.TO_CPU) → 可能漏处理。
+        # 注意：这是启发式，多数 pointwise/reduction 算子跨设备是合法可比的，
+        # 命中只提示模型人工确认（见 SKILL.md「模型必须人工检查」Rule 55）。
+        # 算子的 aten dispatch 名通常与文件名一致（含前导下划线，如
+        # _fused_sdp_choice → torch.ops.aten._fused_sdp_choice）；少数下划线算子
+        # 的 aten 名去掉了下划线。同时匹配两种形态以覆盖 reference 调用。
+        aten_names = {self.op_name, self.op_name.lstrip("_")}
+        has_aten_ref = any(
+            re.search(r"torch\.ops\.aten\." + re.escape(n), content)
+            for n in aten_names
+        )
+        bare_op = self.op_name.lstrip("_")
+        has_to_cpu_guard = (
+            "utils.TO_CPU" in content
+            or "cfg.TO_CPU" in content
+            or "skipif" in content
+        )
+        if has_aten_ref and not has_to_cpu_guard:
+            self.warnings.append(
+                f"测试用 torch.ops.aten.{bare_op} 作 reference 但未见 TO_CPU/skipif "
+                f"处理：若该算子结果依赖输入设备（如 dispatch choice / CUDA-only / "
+                f"device-capability），--ref=cpu --quick 会跨设备失败；需在测试体内加 "
+                f"if utils.TO_CPU: pytest.skip(...) 或 skipif(cfg.TO_CPU)"
+            )
+            warn("疑似漏处理 --ref=cpu 跨设备参考 — 若算子设备相关需 skip/对齐")
+        else:
+            ok("测试已含 TO_CPU/skipif 处理或无 aten reference 跨设备风险")
 
         # 私有 API 检查
         self._check_private_torch_api(content, "测试文件")
