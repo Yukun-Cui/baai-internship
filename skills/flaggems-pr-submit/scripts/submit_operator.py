@@ -212,6 +212,13 @@ def format_pr_body(op_name, pr_data, repo_dir):
     desc_text, kind = get_yaml_description(op_name, repo_dir)
     if not desc_text:
         desc_text = f"Triton kernel implementation for `{op_name}`."
+    # The yaml ``description`` is a block scalar whose line breaks exist only
+    # for source readability; in the PR ``Summary`` they render as spurious
+    # mid-sentence line breaks. Collapse runs of whitespace (keeping the
+    # paragraph break on blank lines) into single spaces.
+    desc_text = " ".join(
+        " ".join(line.split()) for line in desc_text.splitlines() if line.strip()
+    )
 
     nv = pr_data.get("nvidia_benchmark", {})
     rows = nv.get("rows", [])

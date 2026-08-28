@@ -1988,9 +1988,15 @@ class OperatorChecker:
             ok("当前算子 yaml block 无超过 120 字符的单行")
 
     def _check_out_variant_coverage(self, out_func):
-        """检查 _out 变体在 test 和 benchmark 中是否有覆盖，包括 mark 和 op_name。"""
-        base_name = out_func[:-4]  # remove "_out"
-        out_variant = f"{base_name}_out"
+        """检查 _out 变体在 test 和 benchmark 中是否有覆盖，包括 mark 和 op_name。
+
+        ``out_func`` 是 kernel 导出的函数名，按 naming.md 对前导下划线非冲突算子
+        保留前导下划线（如 ``_histogramdd_bin_edges_out``）。但 test/benchmark
+        中实际使用的 mark / op_name 应按 ``op_id``（非冲突去前导下划线，冲突保留）
+        派生，与 ``check_overload_consistency`` 对齐。因此 ``out_variant`` 以
+        ``self.op_id + "_out"`` 为准，而不是直接复用 ``out_func``。
+        """
+        out_variant = f"{self.op_id}_out"
         for filepath, label in [(self.test_path, "测试文件"), (self.bench_path, "benchmark")]:
             if not os.path.isfile(filepath):
                 continue

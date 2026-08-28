@@ -46,9 +46,13 @@ BACKEND_CONFIGS = [
 ]
 
 # Benchmark output line parser
-# Format: SUCCESS  torch_ms  gems_ms  speedup  {detail} or [detail]
+# Format: SUCCESS  torch_ms  gems_ms  speedup  [tflops]  shape_detail
+# ``shape_detail`` is a free-form ``str(metrics.shape_detail)`` and may be a bare
+# list (``[torch.Size([...])]``) or a ``(list, kwargs_dict)`` tuple when the
+# benchmark's ``input_fn`` yields extra keyword arguments (e.g. ``{'bins': ...}``,
+# ``{'dim': -1}``). Match the detail as ``(.+?)\s*$`` so both forms parse.
 BENCH_RE = re.compile(
-    r"SUCCESS\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(?:([\d.]+)\s+)?[\[{](.+?)[\]}]\s*$"
+    r"SUCCESS\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(?:([\d.]+)\s+)?(.+?)\s*$"
 )
 OP_HEADER_RE = re.compile(
     r"Operator:\s+(\S+)\s+Performance Test\s+\(dtype=([^,]+),"
