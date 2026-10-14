@@ -89,12 +89,17 @@ def test_<op>(shape, dtype):
 
 关键约束：
 - 相对导入：`from . import accuracy_utils as utils`
-- mark 与算子 ID 一致（下划线前缀算子去掉下划线）
+- mark 与算子 ID 一致（非冲突的下划线前缀算子去掉下划线；与裸算子冲突时用 `underscore_<bare>`）
 - 用 `to_reference` 获取参考（所有参与参考计算的 tensor 都要转）
 - `gems_assert_close` 只支持 atol，不支持 rtol
 - 禁止 print()
 
-**追加模式**：提取前先查上游是否已有同名文件（`git show upstream/infra-ci:tests/test_<op>.py`）。如已存在（如 `bernoulli_` 占用 `test_bernoulli.py`），保留原文件全部代码，新测试追加到末尾，shapes/dtypes 与同文件已有测试一致，`input_fn` 用描述性命名（如 `bernoulli_input_fn`）。
+**追加模式**：文件名恒为 `tests/test_<去前导下划线>.py`，所以 `a` 和 `_a` 共用一个文件，
+与上游已有文件撞名也是常态（如 `bernoulli_` 占用 `test_bernoulli.py`）。已存在时**续写**：
+保留原文件全部代码，新测试追加到末尾，重名 def/class 跳过，import 合并；shapes/dtypes 与
+同文件已有测试一致，`input_fn` 用描述性命名（如 `bernoulli_input_fn`）。
+`extract_from_worktree.py` 的 `write_or_append()` 已自动处理，无需手动判断。
+跑共用文件时务必带 `-m <mark>` 只选中本算子的 case。
 
 ### 2.5 Benchmark: `benchmark/test_<op>.py`
 
@@ -138,7 +143,7 @@ def test_<op>():
   kind:
     - Math  # or Reduction/NeuralNetwork/LinearAlg/Tensor/Logic
   stages:
-    - alpha: '5.4'
+    - alpha: '5.5'   # 新增算子固定值，脚本强制覆盖 worktree 自带 stage
 ```
 
 ## Phase 3-4: Validation & Pre-commit

@@ -17,10 +17,10 @@ Adds a Triton kernel for `<op>`. <one-line description>.
 ## Testing
 - Parametrized tests over `<parameter dims>` and `<dtypes>`
 - Validated against reference on device via `to_reference(inp, True)`
-- Tested on: Nvidia, Tianshu, Muxi, Ascend, Hygon
+- Tested on: Nvidia H20
 
 ## Performance
-Test command: `pytest benchmark/test_<op>.py --level core` (NVIDIA H20)
+Test command: `pytest benchmark/test_<op>.py --level core`
 
 ### <Operator>
 
@@ -32,22 +32,13 @@ Test command: `pytest benchmark/test_<op>.py --level core` (NVIDIA H20)
 |----------|------------------------|
 | <Operator> | **<am_speedup>** |
 
-## Multi-backend Testing
-| Backend | Accuracy Test | Speedup (mean) | Notes |
-|---|---|---|---|
-| Nvidia (H20) | PASS (<N> cases) | <am_speedup> | Primary |
-| Tianshu | <acc> | <mean_speedup> | <notes> |
-| Muxi | <acc> | <mean_speedup> | <notes> |
-| Ascend | <acc> | <mean_speedup> | <notes> |
-| Hygon | <acc> | <mean_speedup> | <notes> |
-
 ## Files Changed
 - `src/flag_gems/ops/<op>.py`: Triton kernel implementation
 - `tests/test_<op>.py`: Accuracy test
 - `benchmark/test_<op>.py`: Performance benchmark
 - `src/flag_gems/ops/__init__.py`: Register import and `__all__`
 - `src/flag_gems/__init__.py`: Register to `_FULL_CONFIG`
-- `conf/operators.yaml`: Add operator entry (kind: <kind>, stage: alpha 5.4)
+- `conf/operators.yaml`: Add operator entry (kind: <kind>, stage: alpha 5.5)
 EOF
 )"
 ```
@@ -61,10 +52,9 @@ EOF
 | Performance 表格行 | `nvidia_benchmark.rows[]` (operator, dtype, shape, torch_ms, gems_ms, speedup, tflops) |
 | Arithmetic Mean | `nvidia_benchmark.operator_means[]`（算术平均）；单 variant 可回退到 `nvidia_benchmark.arithmetic_mean_speedup` |
 | Performance case 数 | `nvidia_benchmark.case_count` |
-| Multi-backend PASS/FAIL | `domestic_gpu.<backend>.accuracy_passed` / `benchmark_passed` |
-| Multi-backend Speedup | `domestic_gpu.<backend>.bench_mean_speedup` |
-| Multi-backend case 数 | `domestic_gpu.<backend>.bench_case_count` |
-| Multi-backend Notes | `domestic_gpu.<backend>.test_error` / `bench_error`（截短至一句话） |
+
+PR body 只报 Nvidia H20 数据，不含 Multi-backend Testing 段，所以 `domestic_gpu.*`
+字段不进 PR 描述（脚本仍会输出，供本地核对）。
 
 ## 填写规则
 
@@ -72,18 +62,10 @@ EOF
 - Performance 数据必须来自 CI 日志或 `gen_pr_description.py` 脚本
 - Performance 必须按 operator/variant 分 `###` 小节展示；in-place variant 标注 `(in-place)`
 - 表格必须包含 `dtype`、`Size`、Torch/Gems latency、Speedup；如果 benchmark 输出含 TFLOPS，必须记录 `TFLOPS` 列
-- 国产卡 Speedup (mean) 从 summary JSON 的 `benchmark.data` 计算
-- 通过时 Notes 填 `—`，benchmark 未运行填 `N/A`，Speedup 填 `—`
-- Notes 中失败原因截短至一句话（如 "CompilationError" 而非完整 traceback）
 
-## Multi-backend Testing 表格生成（可选）
+## 共享测试/benchmark 文件
 
-如果 `data/国产GPU算子测试情况/` 有对应 summary JSON，可用脚本直接生成 Multi-backend 表格，避免手写：
-
-```bash
-python <SKILL_DIR>/scripts/query_domestic_gpu.py <op> \
-  --nvidia-speedup <mean_speedup>x --nvidia-cases <N> \
-  [--variants <alias1> <alias2>]
-```
-
-`--nvidia-*` 来自 NV benchmark 结果；`--variants` 用于算子名与数据目录中键名不同的情况。脚本输出的表格含 `Benchmark` 列，比上面模板多一列，粘贴时按需对齐。数据目录可用 `FLAGGEMS_DOMESTIC_GPU_DIR` 覆盖。
+`a` 和 `_a` 共用 `tests/test_a.py` / `benchmark/test_a.py`（见 `naming.md`），所以
+`Files Changed` 里写的是去掉前导下划线的文件名，哪怕算子本身带下划线。
+`submit_operator.py` 自动用 `-m <mark>` 只跑本算子的 case，PR 里的性能数字不会
+混入同住算子的行。

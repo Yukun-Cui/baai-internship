@@ -16,7 +16,7 @@ description: >
 
 1. **先跑脚本再 commit** — `check_operator.py` 必须 0 errors
 2. **dtype 默认用常量** — test 用 `utils.FLOAT_DTYPES`，benchmark 用 `consts.FLOAT_DTYPES`。CUDA 不支持时可硬编码 `[torch.float32]` 但必须加注释
-3. **下划线命名** — 前导 `_` 的算子，mark/yaml id/文件名去掉下划线，其余保留（详见 `references/naming.md`）
+3. **下划线命名** — 前导 `_` 的算子，mark/yaml id 去掉下划线，kernel 文件名/函数名/import 保留；**测试和 benchmark 文件名恒去前导下划线**，`a` 与 `_a` 共用 `tests/test_a.py`、`benchmark/test_a.py`（详见 `references/naming.md`）
 4. **不导出 triton kernel** — `__all__` 只导出 wrapper（脚本检查）
 5. **_FULL_CONFIG 映射到 wrapper** — 不是 kernel 函数（脚本检查）
 6. **yaml 条目唯一** — 不允许重复 id（脚本检查）
@@ -69,6 +69,7 @@ description: >
 53. **backend 特化仅在需要时触发额外校验** — 只有当 PR 明确包含 `src/flag_gems/runtime/backend/**` 变更，或用户明确标注 `(muxi特化)` / `(tianshu特化)` 等 backend 特化时，才执行 backend specialization gate；普通算子不得被额外 backend 规则干扰
 54. **测试文件禁止 use_gems()** — 算子的 `tests/test_<op>.py` 不得调用 `flag_gems.use_gems()` / `use_gems()`（否则 CI gate `check-kernelgen-tests` 直接 fail，对所有算子 PR 都跑，不挑 label）。正确写法：直接调 `flag_gems.<op>(res_inputs...)` 跑 Gems kernel，保留 `torch.ops.aten.<op>(ref_inputs...)` 作 reference，最后 `utils.gems_assert_equal(res, ref)`，参考 `tests/test_nested_sum_backward.py`。`check_operator.py` 对所有算子在该项上 error。注意：仓库历史上部分已 merge 算子（`hsplit`/`column_stack`/`flipud`/`fill_diagonal_`/`binomial`）仍含 `use_gems()`，属漏网/历史遗留，**不要照抄**。
 55. **`--ref=cpu --quick` 跨设备参考风险** — CI 第二 pass（`tools/test-op.sh` 114 行）对每个算子 PR 跑 `pytest test_<op>.py --ref=cpu --quick`：reference 搬 CPU、Gems 仍在 GPU，最后 `to_cpu` 拉回 CPU 比。对**结果依赖输入所在设备**的算子（dispatch choice 如 `_fused_sdp_choice`、后端可用性探测、CUDA-only 实现、device-capability 查询），CPU ref 与 GPU Gems 不可比 → `gems_assert_equal` 报 `Scalars/数值 not equal`。判断口诀：提 PR 前问「这个算子输出会随输入所在设备变吗？」会 → 测试体内加 `if utils.TO_CPU: pytest.skip(...)`（不能用模块级 `pytestmark = skipif`，`TO_CPU` 在 `pytest_configure` 才赋值，import 时恒 `False`）；CPU 有实现但行为/数值不同 → `skipif(cfg.TO_CPU)` 或缩参对齐（参考 `tests/test_embedding.py:110`）。不要改 `tools/test-op.sh` 的 `NO_QUICK_CPU_TESTS`（infra，出算子 scope）。`check_operator.py` 对所有算子有启发式 warning：测试用 `torch.ops.aten.<op>` 当 reference 却无 `TO_CPU`/`skipif` 处理时提示人工确认（多数 pointwise/reduction 跨设备合法可比，命中只是提示，不阻断）。
+56. **测试/benchmark 文件共用且已存在就续写** — 测试和 benchmark 文件名**永不带前导下划线**：`a` 和 `_a` 都写 `tests/test_a.py` 与 `benchmark/test_a.py`。文件已存在 → **续写**（保留原有内容不动，新 case 追加到末尾，重名 def/class 跳过，import 合并）；不存在 → 新建。`extract_from_worktree.py` 的 `write_or_append()` 自动处理，不要手动改名或覆盖已有文件。mark / yaml id / `op_name` / kernel 文件名等规则全部不变（`_a` 仍是 mark `underscore_a`、yaml id `_a`、kernel `_a.py`、测试函数 `test__a`），文件内靠 mark 区分同住算子。涉及共享文件的命令一律带 `-m <mark>`（如 `pytest tests/test_a.py -m underscore_a`），否则会连邻居算子一起跑、benchmark 数据混进别人的行；`submit_operator.py` / `gen_pr_description.py` 已自动加。`check_operator.py` 在共享文件上只检查带本算子 mark 的函数（邻居的存量代码不属于本 PR diff，不报错），并要求共享文件里必须有本算子的 mark。
 
 ### Review Hygiene Rules（普通算子 PR）
 
@@ -81,7 +82,7 @@ description: >
 5. **禁止空壳 benchmark override** — 不保留只调用 `super().set_shapes(...)` / `super().set_more_shapes(...)` 且不改变行为的 override；只有实际改变 shapes、输入构造或 benchmark 行为时才覆盖。
 6. **PR body 不出现自动化内部文案** — PR 描述不得包含 `operator not in summary`、`TODO`、`FIXME`、`UNKNOWN`、parser/debug/artifact 等内部状态或调试词。面向 reviewer 的缺省文案使用 `Not benchmarked`、`Not applicable` 或 `Skipped: <short reason>`。
 7. **skip/xfail 必须带 issue 引用** — 新增 `pytest.mark.skip`、`skipif`、`xfail` 时，reason 必须包含 issue URL 或 `#<number>`。没有可引用 issue 时，不要静默跳过；报告 BLOCKED 或让用户决定是否先创建 issue。
-8. **新算子 metadata 保守** — 新增 KernelGen 算子默认使用 alpha/incubating 语义（例如 `stages: alpha: '5.4'`），不得声称 `stable`、`1.0` 或历史版本已支持，除非上游已有明确 precedent。
+8. **新算子 metadata 保守** — 新增 KernelGen 算子统一使用 `stages: alpha: '5.5'`，不得声称 `stable`、`1.0` 或历史版本已支持。`extract_from_worktree.py` 对所有新插入 yaml 条目**强制覆盖**为该值（worktree yaml 自带的 stage 一律不采信，只在日志里提示被覆盖）。
 
 ### Kernel 文件头规则
 
@@ -153,12 +154,13 @@ python scripts/extract_from_worktree.py CrossAttention \
 
 `submit_operator.py` 生成 PR body 时必须使用清晰的 benchmark 表：
 
-- `## Performance` 下先写测试命令：`pytest benchmark/test_<op>.py --level core` (NVIDIA H20)
+- `## Testing` 的最后一行固定为 `- Tested on: Nvidia H20`
+- `## Performance` 下先写测试命令：`pytest benchmark/test_<op>.py --level core`（不带卡型后缀）
 - 每个 operator/variant 单独一个 `### <Operator>` 小节；in-place variant 显示为 `<Operator> (in-place)`
 - 表格列固定包含 `dtype`、`Size`、`Torch Latency (ms)`、`Gems Latency (ms)`、`Speedup`
 - 如果 benchmark 输出包含 TFLOPS，必须额外显示 `TFLOPS` 列，不能丢失
 - 每个 operator/variant 后单独列 `Arithmetic Mean Speedup`
-- `Multi-backend Testing` 的 Nvidia speedup 多 variant 时用 `/` 连接，例如 `1.175/1.194`
+- **不写 `Multi-backend Testing` 段** — PR body 只报 Nvidia H20 数据
 
 ### Backend Specialization Gate（仅当 PR 包含 backend 特化时）
 
@@ -245,6 +247,8 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_work
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_worktree.py <canonical-op> --source-name <worktree-op> --impl-name <worktree-wrapper-op> --canonical-name <canonical-op> --repo-dir /root/FlagGems
 ```
 脚本自动从 worktree 提取 6 个文件：kernel、test、benchmark、ops/__init__.py、__init__.py、operators.yaml。
+测试/benchmark 写 `tests/test_<去前导下划线>.py` 和 `benchmark/test_<同>.py`；该文件已存在（通常是裸算子已占用）时自动续写而非覆盖（Rule 56）。
+operators.yaml 的 `stages` 强制写 `alpha: '5.5'`。
 如果 `source_name != canonical_name` 或 `impl_name != canonical_name`，脚本会在提取后系统性重命名到规范名，并写入 `.name_plan/<canonical>.json` 供 `check_operator.py` 检查旧名残留。
 **所有注册按字母序插入，所有代码从 worktree 原样提取；规范名迁移只做机械重命名。禁止手动编写 test/benchmark 代码。**
 
@@ -332,7 +336,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 - `scripts/rebase_and_resolve.py` — 一键 rebase + 自动解 `__init__.py` 冲突 + push
 - `scripts/resolve_init_conflicts.py` / `scripts/resolve_ops_init_conflicts.py` — 单独解决注册文件排序冲突
 - `scripts/fix_ci.py` — 读取 CI 失败日志并自动修复常见问题
-- `scripts/query_domestic_gpu.py` — 生成 Multi-backend Testing 表格（需 `data/国产GPU算子测试情况/`）
+- `scripts/query_domestic_gpu.py` — 查询国产卡测试结果（需 `data/国产GPU算子测试情况/`）；PR body 已不含 Multi-backend 段，仅供本地核对
 
 ## check_operator.py 自动检查项一览
 
@@ -365,7 +369,7 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 | 单算子 PR | Rule 9 | error |
 | @use_tl_extra 桩函数 | Rule 25 | error |
 | 硬编码超参无注释 | Rule 22/41 | error |
-| Benchmark case 数量 | — | info |
+| Benchmark case 数量（共享文件按 `-m <mark>` 统计） | — | info |
 | 别名封装 | Rule 16 | warning |
 | NaN 处理 (equal_nan) | Rule 36 | warning |
 | Worktree 一致性 (注释/函数数) | Rule 19/32 | warning |
@@ -382,6 +386,8 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 | YAML description 单行长度 | Rule 49 | warning |
 | 测试 use_gems() 禁用 | Rule 54 | error |
 | `--ref=cpu` 跨设备参考启发式 | Rule 55 | warning |
+| 测试/benchmark 文件名去前导下划线 | Rule 56 | error |
+| 共享文件中存在本算子 mark | Rule 56 | error |
 
 ## 模型必须人工检查的规则（无法自动化）
 

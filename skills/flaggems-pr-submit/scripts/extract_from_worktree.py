@@ -22,9 +22,12 @@ import sys
 import yaml
 
 from name_plan import build_name_plan, write_name_plan
-from paths import id_to_mark, resolve_op_names
+from paths import id_to_mark, resolve_op_names, test_file_id
 
 DEFAULT_REPO = "/root/FlagGems"
+# 新增 KernelGen 算子统一的 operators.yaml stages（Review Hygiene Rule 8）。
+# 所有新插入条目强制用这个值，不沿用 worktree yaml 里的 stage。
+DEFAULT_STAGES = [{"alpha": "5.5"}]
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -549,12 +552,184 @@ def convert_test_imports(func_block, op, resolved_id=None, local_names=None):
     return result
 
 
+def _split_header_and_body(content):
+    """把文件切成 (import/header 区, 其余正文)。
+
+    header 区 = 文件开头连续的注释/docstring/import 行（含 ``from x import (``
+    多行形式）。遇到第一条非 import 语句即停止。
+    """
+    lines = content.split("\n")
+    header_end = 0
+    i = 0
+    paren = 0
+    seen_import = False
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if paren > 0:
+            paren += stripped.count("(") - stripped.count(")")
+            i += 1
+            header_end = i
+            continue
+        if stripped == "" or stripped.startswith("#"):
+            i += 1
+            if not seen_import:
+                header_end = i
+            continue
+        if stripped.startswith(("import ", "from ")):
+            seen_import = True
+            paren += stripped.count("(") - stripped.count(")")
+            i += 1
+            header_end = i
+            continue
+        break
+    return "\n".join(lines[:header_end]), "\n".join(lines[header_end:])
+
+
+def merge_into_existing(existing, header_lines, new_body, label):
+    """把新生成的 body 续写进已存在的文件，返回合并后的完整内容。
+
+    `a` 和 `_a` 共用 test_a.py / benchmark/test_a.py（见 paths.test_file_id），
+    所以写入时文件常常已有邻居算子的内容。合并规则：
+      * 保留已有文件的全部内容（不重排、不改动邻居代码）；
+      * 新 header 中已存在的 import 行丢弃，缺的按原顺序补到 header 区末尾；
+      * 新 body 中与已有文件重名的 def/class 块跳过（避免 F811 重定义），
+        其余追加到文件末尾。
+    """
+    existing_header, existing_rest = _split_header_and_body(existing)
+    header_text = existing_header
+    existing_lines = {l.strip() for l in existing.split("\n")}
+
+    # ``from <mod> import a, b`` 要和已有的同模块 import 合并成一行，不能并列
+    # 追加 —— 否则 ``from . import base`` + ``from . import base, consts`` 会被
+    # flake8 当作 F811 重定义。
+    _plain_from = re.compile(r"^from ([\w.]+) import ((?:\w+)(?:\s*,\s*\w+)*)$")
+
+    missing_imports = []
+    for line in header_lines:
+        if not line.strip():
+            continue
+        if line.strip() in existing_lines:
+            continue
+        m = _plain_from.match(line.strip())
+        if m:
+            module, names = m.group(1), [n.strip() for n in m.group(2).split(",")]
+            same_mod = re.search(
+                rf"^from {re.escape(module)} import ((?:\w+)(?:\s*,\s*\w+)*)$",
+                header_text, re.MULTILINE,
+            )
+            if same_mod:
+                have = [n.strip() for n in same_mod.group(1).split(",")]
+                merged_names = have + [n for n in names if n not in have]
+                if len(merged_names) > len(have):
+                    header_text = header_text.replace(
+                        same_mod.group(0),
+                        f"from {module} import " + ", ".join(merged_names),
+                    )
+                    ok(f"{label} 合并 import: from {module} import "
+                       f"{', '.join(merged_names)}")
+                continue
+        missing_imports.append(line)
+    existing_header = header_text
+
+    existing_defs = set(
+        re.findall(r"^(?:def|class)\s+(\w+)", existing, re.MULTILINE)
+    )
+
+    kept_blocks = []
+    skipped = []
+    for block in re.split(r"\n{3,}", new_body.strip("\n")):
+        if not block.strip():
+            continue
+        m = re.search(r"^(?:def|class)\s+(\w+)", block, re.MULTILINE)
+        name = m.group(1) if m else None
+        if name and name in existing_defs:
+            skipped.append(name)
+            continue
+        # 模块级常量赋值（无 def/class）若已存在同名定义也跳过
+        if not name:
+            assigns = re.findall(r"^([A-Za-z_]\w*)\s*=", block, re.MULTILINE)
+            if assigns and all(
+                re.search(rf"^{re.escape(a)}\s*=", existing, re.MULTILINE)
+                for a in assigns
+            ):
+                skipped.append(", ".join(assigns))
+                continue
+        kept_blocks.append(block)
+
+    if skipped:
+        warn(f"{label} 已存在同名定义，跳过: {', '.join(skipped)}")
+
+    if missing_imports:
+        new_header = existing_header.rstrip("\n") + "\n" + "\n".join(missing_imports)
+        # 交给 isort 决定分组/顺序：手工插位猜不准 stdlib / third-party /
+        # first-party 之间的空行，会让 pre-commit 阶段的 isort 再改一遍，
+        # 制造与算子无关的 diff。config 对齐 .pre-commit-config.yaml 的
+        # ``--profile black``，并把 flag_gems 声明为 first-party（否则 isort
+        # 默认把它归到 third-party，和仓库现状相反）。isort 不可用时原样追加，
+        # 由 pre-commit 兜底。
+        try:
+            import isort
+
+            new_header = isort.code(
+                new_header + "\n",
+                config=isort.Config(profile="black", known_first_party=["flag_gems"]),
+            ).rstrip("\n")
+        except Exception:
+            pass
+        ok(f"{label} 补充 import: {', '.join(i.strip() for i in missing_imports)}")
+    else:
+        new_header = existing_header.rstrip("\n")
+
+    # 已有正文（header 之后的部分）按原样保留，连空行布局一起 —— 重新 join 会
+    # 改掉 header 与第一条语句之间的空行数，让 isort/black 在 pre-commit 阶段
+    # 报已有代码的格式问题（与本算子无关的 diff）。新块一律接在文件末尾。
+    # ``_split_header_and_body`` 是按行切的，两段之间原本有一个 "\n" 分隔符，
+    # 拼回去时必须补上，否则 header 和正文之间会少一个空行。
+    merged = new_header.rstrip("\n") + "\n" + existing_rest
+    for block in kept_blocks:
+        merged = merged.rstrip("\n") + "\n\n\n" + block.strip("\n")
+    if not merged.endswith("\n"):
+        merged += "\n"
+    return merged, len(kept_blocks)
+
+
+def write_or_append(dst, header_lines, body, label, dry_run):
+    """写入新文件，或在文件已存在时把 body 续写进去。"""
+    new_content = "\n".join(header_lines) + f"{body}\n"
+
+    if not os.path.isfile(dst):
+        if dry_run:
+            ok(f"[DRY] 将新建 {dst}")
+            print(f"    预览:\n{new_content[:500]}")
+        else:
+            with open(dst, "w") as f:
+                f.write(new_content)
+            ok(f"已生成: {dst}")
+        return
+
+    with open(dst) as f:
+        existing = f.read()
+
+    merged, added = merge_into_existing(existing, header_lines, body, label)
+    if added == 0:
+        warn(f"{dst} 已存在且无新内容可追加（全部为同名定义），保持原样")
+        return
+
+    if dry_run:
+        ok(f"[DRY] 将向已存在的 {dst} 追加 {added} 个代码块")
+    else:
+        with open(dst, "w") as f:
+            f.write(merged)
+        ok(f"已追加 {added} 个代码块到已存在文件: {dst}")
+
+
 def extract_test(op, worktree, repo, dry_run):
     section("Step 2: Test 文件")
     op_id = get_op_id(op)  # 读取 worktree 用（生成名，无冲突）
-    # 最终文件名用 resolve_op_names：冲突场景保留前导下划线。
+    # 测试文件名始终去掉前导下划线：`a` 与 `_a` 共用 tests/test_a.py，
+    # 文件内靠各自的 mark 区分（见 paths.test_file_id）。
     file_op_id = resolve_op_names(repo, op)[0]
-    dst = os.path.join(repo, f"tests/test_{file_op_id}.py")
+    dst = os.path.join(repo, f"tests/test_{test_file_id(op)}.py")
 
     fpath, content, func_name = find_test_function(op, worktree)
     if not fpath:
@@ -724,15 +899,8 @@ def extract_test(op, worktree, repo, dry_run):
     for line in extra_import_lines:
         header_lines.append(line)
     header_lines += ["", "from . import accuracy_utils as utils", "", ""]
-    test_content = "\n".join(header_lines) + f"{combined_blocks}\n"
 
-    if dry_run:
-        ok(f"[DRY] 将写入 {dst}")
-        print(f"    预览:\n{test_content[:500]}")
-    else:
-        with open(dst, "w") as f:
-            f.write(test_content)
-        ok(f"已生成: {dst}")
+    write_or_append(dst, header_lines, combined_blocks, "测试文件", dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -1098,9 +1266,8 @@ def test_{op_id}():
 def extract_benchmark(op, worktree, repo, dry_run):
     section("Step 3: Benchmark 文件")
     op_id = get_op_id(op)  # 读取 worktree 用（生成名，无冲突）
-    # 最终文件名用 resolve_op_names：冲突场景保留前导下划线。
-    file_op_id = resolve_op_names(repo, op)[0]
-    dst = os.path.join(repo, f"benchmark/test_{file_op_id}.py")
+    # benchmark 文件名同 test：始终去掉前导下划线，`a` 与 `_a` 共用一个文件。
+    dst = os.path.join(repo, f"benchmark/test_{test_file_id(op)}.py")
 
     fpath, content = find_benchmark_code(op, worktree)
     if not fpath:
@@ -1161,13 +1328,11 @@ def extract_benchmark(op, worktree, repo, dry_run):
     if not bench_content:
         fatal("无法生成 benchmark 文件内容")
 
-    if dry_run:
-        ok(f"[DRY] 将写入 {dst}")
-        print(f"    预览:\n{bench_content[:500]}")
-    else:
-        with open(dst, "w") as f:
-            f.write(bench_content)
-        ok(f"已生成: {dst}")
+    bench_header, bench_body = _split_header_and_body(bench_content)
+    write_or_append(
+        dst, bench_header.split("\n"), "\n" + bench_body.strip("\n"),
+        "benchmark", dry_run,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1486,7 +1651,7 @@ def insert_operators_yaml(op, worktree, repo, dry_run):
                 "for": [op],
                 "labels": ["aten", "KernelGen"],
                 "kind": ["Math"],
-                "stages": [{"alpha": "5.4"}],
+                "stages": DEFAULT_STAGES,
             }
             warn(f"worktree yaml 无此算子，使用默认条目（description 需人工补充）")
         else:
@@ -1495,9 +1660,6 @@ def insert_operators_yaml(op, worktree, repo, dry_run):
                 labels.append("KernelGen")
                 entry["labels"] = labels
             entry["id"] = op_id
-            stages = entry.get("stages", {})
-            if isinstance(stages, dict):
-                entry["stages"] = [{k: v} for k, v in stages.items()]
             ok(f"从 worktree yaml 提取条目")
 
         # Split: if entry's 'for' list contains both op and op_ (inplace), split them
@@ -1542,7 +1704,7 @@ def insert_operators_yaml(op, worktree, repo, dry_run):
                         "for": [inplace_op],
                         "labels": ["aten", "KernelGen"],
                         "kind": ["Math"],
-                        "stages": [{"alpha": "5.4"}],
+                        "stages": DEFAULT_STAGES,
                     }
                     _insert_yaml_entry(inplace_entry, repo_yaml, inplace_id, current_ids, dry_run)
                     ok(f"_FULL_CONFIG 注册了 inplace 变体，已生成独立 yaml 条目: {inplace_id}")
@@ -1577,15 +1739,28 @@ def insert_operators_yaml(op, worktree, repo, dry_run):
                 if "KernelGen" not in labels:
                     labels.append("KernelGen")
                     sib_entry["labels"] = labels
-                stages = sib_entry.get("stages", {})
-                if isinstance(stages, dict):
-                    sib_entry["stages"] = [{k: v} for k, v in stages.items()]
+                # stages 由 _insert_yaml_entry 统一强制为 DEFAULT_STAGES
                 # refresh cur_ids for ordering against just-inserted siblings
                 with open(repo_yaml) as f:
                     cur_data = yaml.safe_load(f)
                 cur_ids = [o.get("id") for o in cur_data.get("ops", [])]
                 _insert_yaml_entry(sib_entry, repo_yaml, wt_id, cur_ids, dry_run)
                 ok(f"已插入 sibling 变体 yaml 条目: id={wt_id}")
+
+
+def _detect_yaml_indent(yaml_lines):
+    """探测 operators.yaml 里 ``- id:`` 列表项的缩进（空格数）。
+
+    上游曾把 ops 列表从 ``  - id:``（2 空格）改成列在列对齐的 ``- id:``（0 空格）。
+    插入时必须跟随文件现状：缩进写错会让新条目被 YAML 解析成**上一条目最后一个
+    字段的嵌套列表**，`yaml.safe_load` 不报错但算子静默不注册，后面所有按 id
+    查找的检查都会"找不到算子"。
+    """
+    for line in yaml_lines:
+        m = re.match(r"^(\s*)-\s*id:\s*\S", line)
+        if m:
+            return len(m.group(1))
+    return 0
 
 
 def _insert_yaml_entry(entry, repo_yaml, entry_id, existing_ids, dry_run):
@@ -1608,38 +1783,43 @@ def _insert_yaml_entry(entry, repo_yaml, entry_id, existing_ids, dry_run):
                 break
         i += 1
 
+    # 缩进跟随文件现状（见 _detect_yaml_indent）
+    pad = " " * _detect_yaml_indent(yaml_lines)
+    field = pad + "  "   # 条目内字段
+    item = field + "  "  # 字段下的列表项
+
     new_lines = []
-    new_lines.append(f"  - id: {entry['id']}\n")
+    new_lines.append(f"{pad}- id: {entry['id']}\n")
     desc = entry.get("description", "").strip()
     if "\n" in desc or len(desc) > 60:
-        new_lines.append("    description: |\n")
+        new_lines.append(f"{field}description: |\n")
         for dline in desc.split("\n"):
-            new_lines.append(f"      {dline.strip()}\n")
+            new_lines.append(f"{item}{dline.strip()}\n")
     else:
-        new_lines.append(f"    description: {desc}\n")
-    new_lines.append("    for:\n")
-    for item in entry.get("for", []):
+        new_lines.append(f"{field}description: {desc}\n")
+    new_lines.append(f"{field}for:\n")
+    for for_item in entry.get("for", []):
         # special_* 算子 for 字段用 aten dispatch 格式: special.xxx
-        if item.startswith("special_") and "." not in item:
-            item = item.replace("special_", "special.", 1)
-            warn(f"yaml for 自动修正: special_xxx → {item}")
-        new_lines.append(f"      - {item}\n")
-    new_lines.append("    labels:\n")
+        if for_item.startswith("special_") and "." not in for_item:
+            for_item = for_item.replace("special_", "special.", 1)
+            warn(f"yaml for 自动修正: special_xxx → {for_item}")
+        new_lines.append(f"{item}- {for_item}\n")
+    new_lines.append(f"{field}labels:\n")
     for label in entry.get("labels", ["aten", "KernelGen"]):
-        new_lines.append(f"      - {label}\n")
-    new_lines.append("    kind:\n")
+        new_lines.append(f"{item}- {label}\n")
+    new_lines.append(f"{field}kind:\n")
     for kind in entry.get("kind", ["Math"]):
-        new_lines.append(f"      - {kind}\n")
-    new_lines.append("    stages:\n")
-    stages = entry.get("stages", [{"alpha": "5.4"}])
-    if isinstance(stages, list):
-        for s in stages:
-            if isinstance(s, dict):
-                for k, v in s.items():
-                    new_lines.append(f"      - {k}: '{v}'\n")
-    elif isinstance(stages, dict):
-        for k, v in stages.items():
-            new_lines.append(f"      - {k}: '{v}'\n")
+        new_lines.append(f"{item}- {kind}\n")
+    # 新增 KernelGen 算子的 stages 一律写 alpha: '5.5'（Review Hygiene Rule 8）。
+    # 这里强制覆盖而非沿用 worktree yaml：生成器给出的 stage 往往是旧版本号或
+    # 过于乐观的 stable/1.0，而所有新算子对外都只承诺 alpha 语义。
+    new_lines.append(f"{field}stages:\n")
+    wt_stages = entry.get("stages")
+    if wt_stages and wt_stages != DEFAULT_STAGES:
+        warn(f"worktree yaml stages={wt_stages} 已覆盖为 {DEFAULT_STAGES}")
+    for s in DEFAULT_STAGES:
+        for k, v in s.items():
+            new_lines.append(f"{item}- {k}: '{v}'\n")
 
     yaml_lines[insert_line:insert_line] = new_lines
     ok(f"yaml 插入 id: {entry_id} 在行 {insert_line + 1}")
@@ -1710,28 +1890,50 @@ def canonicalize_extracted_files(plan, repo, dry_run):
                     f.write(new_content)
                 ok(f"已规范化内容: {relpath}")
 
+    # (old, new, 目标已存在时是否允许合并)。kernel 文件一个算子一个，撞名说明
+    # 名字规划有问题，必须 fatal；test/benchmark 是共享文件（`a` 与 `_a` 同住
+    # test_a.py），撞名是正常情况，按追加合并处理。
     renames = [
         (
             f"src/flag_gems/ops/{plan.source_name}.py",
             f"src/flag_gems/ops/{plan.canonical_name}.py",
+            False,
         ),
         (
             f"tests/test_{plan.impl_op_id}.py",
             f"tests/test_{plan.canonical_op_id}.py",
+            True,
         ),
         (
             f"benchmark/test_{plan.impl_op_id}.py",
             f"benchmark/test_{plan.canonical_op_id}.py",
+            True,
         ),
     ]
 
-    for old_rel, new_rel in renames:
+    for old_rel, new_rel, mergeable in renames:
         old = os.path.join(repo, old_rel)
         new = os.path.join(repo, new_rel)
         if old == new or not os.path.isfile(old):
             continue
         if os.path.exists(new):
-            fatal(f"规范名目标文件已存在，不能覆盖: {new_rel}")
+            if not mergeable:
+                fatal(f"规范名目标文件已存在，不能覆盖: {new_rel}")
+            with open(old) as f:
+                old_header, old_body = _split_header_and_body(f.read())
+            with open(new) as f:
+                existing = f.read()
+            merged, added = merge_into_existing(
+                existing, old_header.split("\n"), "\n" + old_body.strip("\n"), new_rel,
+            )
+            if dry_run:
+                ok(f"[DRY] 将合并 {old_rel} → 已存在的 {new_rel}（{added} 个代码块）")
+            else:
+                with open(new, "w") as f:
+                    f.write(merged)
+                os.remove(old)
+                ok(f"已合并 {old_rel} → {new_rel}（{added} 个代码块）")
+            continue
         if dry_run:
             ok(f"[DRY] 将重命名: {old_rel} → {new_rel}")
         else:
@@ -1899,8 +2101,8 @@ def main():
     print(f"  src/flag_gems/ops/{canonical_op}.py")
     print(f"  src/flag_gems/ops/__init__.py")
     print(f"  src/flag_gems/__init__.py")
-    print(f"  tests/test_{canonical_op_id}.py")
-    print(f"  benchmark/test_{canonical_op_id}.py")
+    print(f"  tests/test_{test_file_id(canonical_op)}.py")
+    print(f"  benchmark/test_{test_file_id(canonical_op)}.py")
     print(f"  conf/operators.yaml")
     print(f"\n  接下来运行: CUDA_VISIBLE_DEVICES=<N> python scripts/submit_operator.py {canonical_op}")
 

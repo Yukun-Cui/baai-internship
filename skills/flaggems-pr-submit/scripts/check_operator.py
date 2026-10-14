@@ -38,7 +38,16 @@ import sys
 import yaml
 
 from name_plan import load_name_plan
-from paths import detect_underscore_conflict, id_to_mark, resolve_op_names
+from paths import (
+    _mark_matches,
+    detect_underscore_conflict,
+    id_to_mark,
+    owned_source,
+    owned_test_functions,
+    resolve_op_names,
+    test_file_id,
+    test_paths,
+)
 from targets import add_target_args, resolve_target
 
 COPYRIGHT_LICENSE_HEADER = """# Copyright 2026, The FlagOS Contributors.
@@ -111,17 +120,48 @@ class OperatorChecker:
         # mark_id: pytest mark 用（冲突时 underscore 前缀替代前导下划线）
         self.op_id, self.mark_id = resolve_op_names(repo_dir, op_name)
 
-        # 测试/benchmark 文件名使用 op_id
-        self.test_path = os.path.join(repo_dir, "tests", f"test_{self.op_id}.py")
-        self.bench_path = os.path.join(repo_dir, "benchmark", f"test_{self.op_id}.py")
+        # 测试/benchmark 文件名始终去掉前导下划线：`a` 与 `_a` 共用
+        # tests/test_a.py 和 benchmark/test_a.py，文件内靠各自的 mark 区分。
+        self.test_file_id = test_file_id(op_name)
+        self.test_path, self.bench_path = test_paths(repo_dir, op_name)
         self.name_plan = load_name_plan(repo_dir, op_name)
-        # 旧版错误路径（用于检测）。冲突模式下文件名保留下划线，无“错误路径”。
-        if self.has_leading_underscore and not self.underscore_conflict:
+        # 旧版错误路径（用于检测）：带前导下划线的 test__<op>.py 已不再使用。
+        if self.has_leading_underscore:
             self.wrong_test_path = os.path.join(repo_dir, "tests", f"test_{op_name}.py")
             self.wrong_bench_path = os.path.join(repo_dir, "benchmark", f"test_{op_name}.py")
         else:
             self.wrong_test_path = None
             self.wrong_bench_path = None
+
+    def is_shared_test_file(self, path):
+        """该 test/benchmark 文件里是否还住着别的算子。
+
+        共用 test_a.py 时，文件内除了本算子（mark `underscore_a`）还有裸算子
+        `a` 的 case。对这类文件做文本检查必须先过滤到自己的函数，否则会对邻居
+        的存量代码报错 —— 那些代码不属于本 PR 的 diff。
+        """
+        if not os.path.isfile(path):
+            return False
+        with open(path, "r") as f:
+            marks = set(re.findall(r"@pytest\.mark\.(\w+)", f.read()))
+        marks -= {"parametrize", "skip", "skipif", "xfail", "usefixtures", "filterwarnings"}
+        # 本算子的 base mark 和它的重载变体 mark（<mark>_out 等）都算自己的
+        return any(not _mark_matches(m, self.mark_id) for m in marks)
+
+    def read_owned(self, path):
+        """读取 test/benchmark 文件中属于本算子的部分。
+
+        非共享文件返回全文；共享文件返回「模块级代码 + 带本算子 mark 的函数」。
+        共享文件里本算子一个函数都没有时返回空串，由调用方按未覆盖处理。
+        """
+        if not os.path.isfile(path):
+            return ""
+        with open(path, "r") as f:
+            content = f.read()
+        if not self.is_shared_test_file(path):
+            return content
+        scoped = owned_source(path, self.mark_id)
+        return scoped if scoped.strip() else content
 
     def run_all(self):
         if self.has_leading_underscore:
@@ -129,11 +169,12 @@ class OperatorChecker:
             ok(f"检测到下划线前缀算子: {self.op_name}")
             if self.underscore_conflict:
                 ok(f"  检测到裸算子冲突 → 冲突消歧模式")
-                ok(f"  文件名/函数名/import/_FULL_CONFIG/yaml id: 保留 {self.op_name}")
+                ok(f"  函数名/import/_FULL_CONFIG/yaml id/kernel 文件名: 保留 {self.op_name}")
                 ok(f"  pytest mark: 使用 {self.mark_id}（underscore 前缀替代前导下划线）")
             else:
-                ok(f"  文件名/函数名/import/_FULL_CONFIG: 保留 {self.op_name}")
+                ok(f"  函数名/import/_FULL_CONFIG/kernel 文件名: 保留 {self.op_name}")
                 ok(f"  pytest mark / yaml id: 使用 {self.op_id}（去掉前导下划线）")
+            ok(f"  测试/benchmark 文件: test_{self.test_file_id}.py（与裸算子共用）")
 
         self.check_kernel()
         self.check_ops_init()
@@ -538,18 +579,29 @@ class OperatorChecker:
             # 检查是否用了错误的文件名（带下划线）
             if self.wrong_test_path and os.path.isfile(self.wrong_test_path):
                 self.errors.append(
-                    f"测试文件名错误: test_{self.op_name}.py → 应为 test_{self.op_id}.py（去掉前导下划线）"
+                    f"测试文件名错误: test_{self.op_name}.py → 应为 "
+                    f"test_{self.test_file_id}.py（与裸算子共用，不带前导下划线）"
                 )
-                fail(f"文件名错误: test_{self.op_name}.py → 应为 test_{self.op_id}.py")
+                fail(f"文件名错误: test_{self.op_name}.py → 应为 test_{self.test_file_id}.py")
             else:
                 self.errors.append(f"测试文件不存在: {self.test_path}")
-                fail(f"文件不存在: tests/test_{self.op_id}.py")
+                fail(f"文件不存在: tests/test_{self.test_file_id}.py")
             return
 
-        ok(f"文件存在: tests/test_{self.op_name}.py")
+        ok(f"文件存在: tests/test_{self.test_file_id}.py")
 
-        with open(self.test_path, "r") as f:
-            content = f.read()
+        shared = self.is_shared_test_file(self.test_path)
+        if shared:
+            if not owned_test_functions(self.test_path, self.mark_id):
+                self.errors.append(
+                    f"tests/test_{self.test_file_id}.py 是与其它算子共用的文件，"
+                    f"但其中没有带 @pytest.mark.{self.mark_id} 的测试函数"
+                )
+                fail(f"共用文件中无本算子测试: 缺少 @pytest.mark.{self.mark_id}")
+                return
+            ok(f"共用测试文件（与其它算子同住），按 @pytest.mark.{self.mark_id} 范围检查")
+
+        content = self.read_owned(self.test_path)
 
         # pytest mark 检查（使用 mark_id：默认去掉前导下划线，冲突时用 underscore 前缀）
         correct_mark = f"@pytest.mark.{self.mark_id}"
@@ -688,18 +740,28 @@ class OperatorChecker:
         if not os.path.isfile(self.bench_path):
             if self.wrong_bench_path and os.path.isfile(self.wrong_bench_path):
                 self.errors.append(
-                    f"benchmark 文件名错误: test_{self.op_name}.py → 应为 test_{self.op_id}.py（去掉前导下划线）"
+                    f"benchmark 文件名错误: test_{self.op_name}.py → 应为 "
+                    f"test_{self.test_file_id}.py（与裸算子共用，不带前导下划线）"
                 )
-                fail(f"文件名错误: test_{self.op_name}.py → 应为 test_{self.op_id}.py")
+                fail(f"文件名错误: test_{self.op_name}.py → 应为 test_{self.test_file_id}.py")
             else:
                 self.errors.append(f"benchmark 文件不存在: {self.bench_path}")
-                fail(f"文件不存在: benchmark/test_{self.op_id}.py")
+                fail(f"文件不存在: benchmark/test_{self.test_file_id}.py")
             return
 
-        ok(f"文件存在: benchmark/test_{self.op_id}.py")
+        ok(f"文件存在: benchmark/test_{self.test_file_id}.py")
 
-        with open(self.bench_path, "r") as f:
-            content = f.read()
+        if self.is_shared_test_file(self.bench_path):
+            if not owned_test_functions(self.bench_path, self.mark_id):
+                self.errors.append(
+                    f"benchmark/test_{self.test_file_id}.py 是与其它算子共用的文件，"
+                    f"但其中没有带 @pytest.mark.{self.mark_id} 的 benchmark 函数"
+                )
+                fail(f"共用文件中无本算子 benchmark: 缺少 @pytest.mark.{self.mark_id}")
+                return
+            ok(f"共用 benchmark 文件（与其它算子同住），按 @pytest.mark.{self.mark_id} 范围检查")
+
+        content = self.read_owned(self.bench_path)
 
         # pytest mark 检查（使用 mark_id：默认去掉前导下划线，冲突时用 underscore 前缀）
         correct_mark = f"@pytest.mark.{self.mark_id}"
@@ -906,38 +968,38 @@ class OperatorChecker:
     def check_code_quality(self):
         section("代码质量检查")
 
-        for filepath in [self.kernel_path, self.test_path, self.bench_path]:
-            if not os.path.isfile(filepath):
-                continue
-            with open(filepath, "r") as f:
-                content = f.read()
+        # 共享的 test/benchmark 文件里只检查本算子的行：邻居算子的存量格式问题
+        # 不在本 PR diff 内，报出来也无法修（改了就污染 diff）。
+        def _sources():
+            for filepath in [self.kernel_path, self.test_path, self.bench_path]:
+                if not os.path.isfile(filepath):
+                    continue
+                if filepath == self.kernel_path:
+                    with open(filepath, "r") as f:
+                        yield filepath, f.read()
+                else:
+                    yield filepath, self.read_owned(filepath)
+
+        for filepath, content in _sources():
             if not content.endswith("\n"):
                 relpath = os.path.relpath(filepath, self.repo_dir)
                 self.warnings.append(f"{relpath} 文件末尾缺少换行")
                 warn(f"{relpath} 文件末尾缺少换行 — end-of-file-fixer 会报错")
 
-        for filepath in [self.kernel_path, self.test_path, self.bench_path]:
-            if not os.path.isfile(filepath):
-                continue
-            with open(filepath, "r") as f:
-                lines = f.readlines()
-            for i, line in enumerate(lines, 1):
-                if line.rstrip() != line.rstrip("\n").rstrip():
+        for filepath, content in _sources():
+            for i, line in enumerate(content.split("\n"), 1):
+                if line != line.rstrip():
                     relpath = os.path.relpath(filepath, self.repo_dir)
                     self.warnings.append(f"{relpath}:{i} 行尾有空白字符")
                     warn(f"{relpath}:{i} 行尾空白 — trailing-whitespace hook 会报错")
                     break
 
-        for filepath in [self.kernel_path, self.test_path, self.bench_path]:
-            if not os.path.isfile(filepath):
-                continue
-            with open(filepath, "r") as f:
-                lines = f.readlines()
-            for i, line in enumerate(lines, 1):
-                if len(line.rstrip("\n")) > 120:
+        for filepath, content in _sources():
+            for i, line in enumerate(content.split("\n"), 1):
+                if len(line) > 120:
                     relpath = os.path.relpath(filepath, self.repo_dir)
                     self.warnings.append(f"{relpath}:{i} 行长度超过 120 字符")
-                    warn(f"{relpath}:{i} 行长度 {len(line.rstrip())} > 120 — flake8 会报错")
+                    warn(f"{relpath}:{i} 行长度 {len(line)} > 120 — flake8 会报错")
                     break
 
     def check_upstream_conflict(self):
@@ -1018,8 +1080,9 @@ class OperatorChecker:
         for filepath, label in [(self.test_path, "测试文件"), (self.bench_path, "benchmark")]:
             if not os.path.isfile(filepath):
                 continue
-            with open(filepath, "r") as f:
-                content = f.read()
+            # 共享文件里邻居算子的 mark 本就"不属于本算子"，必须按 mark 范围
+            # 读取，否则下面的"多余 mark"检查会把邻居的 mark 全部报出来。
+            content = self.read_owned(filepath)
 
             marks = set(re.findall(r"@pytest\.mark\.(\w+)", content))
             # 去掉 pytest 内置 mark
@@ -1341,9 +1404,15 @@ class OperatorChecker:
             os.path.join(self.repo_dir, "tests", f"test_{plan.impl_op_id}.py"),
             os.path.join(self.repo_dir, "benchmark", f"test_{plan.impl_op_id}.py"),
         ]
+        # 测试/benchmark 文件名去前导下划线后，"旧名"路径可能正好等于最终要用的
+        # 共享文件（如 impl `_a` → 旧路径 test_a.py，而规范名 `a` 的文件也是
+        # test_a.py）。那不是残留，排除掉，否则必然误报。
+        final_paths = {self.test_path, self.bench_path}
 
         stale_found = False
         for old_path in old_paths:
+            if old_path in final_paths:
+                continue
             if os.path.exists(old_path):
                 rel = os.path.relpath(old_path, self.repo_dir)
                 self.errors.append(f"规范名重命名后仍存在旧路径: {rel}")
@@ -1353,8 +1422,13 @@ class OperatorChecker:
         for path in paths:
             if not os.path.isfile(path):
                 continue
-            with open(path, "r") as f:
-                content = f.read()
+            # 共享的 test/benchmark 只查本算子的部分：邻居算子的代码里出现
+            # 与本算子生成名相同的 token 不是本 PR 的残留。
+            if path in (self.test_path, self.bench_path):
+                content = self.read_owned(path)
+            else:
+                with open(path, "r") as f:
+                    content = f.read()
             for token in stale_tokens:
                 if token and token != plan.canonical_name and token in content:
                     rel = os.path.relpath(path, self.repo_dir)
@@ -1416,8 +1490,12 @@ class OperatorChecker:
         for filepath, label, pattern in checks:
             if not os.path.isfile(filepath):
                 continue
-            with open(filepath, "r") as f:
-                lines = f.readlines()
+            if filepath == self.kernel_path:
+                with open(filepath, "r") as f:
+                    lines = f.readlines()
+            else:
+                # 共享文件：只看本算子的行（owned_source 保留行号对齐）
+                lines = self.read_owned(filepath).split("\n")
 
             for i, line in enumerate(lines):
                 if "triton.Config" in line:
@@ -1453,22 +1531,31 @@ class OperatorChecker:
             return
 
         try:
+            # 共享 benchmark 文件里用 -m 选中本算子，否则统计到的是本算子
+            # + 邻居算子的合计 case 数。
+            cmd = [
+                "python", "-m", "pytest", self.bench_path,
+                "--collect-only", "-q", "--level", "core",
+            ]
+            scoped = self.is_shared_test_file(self.bench_path)
+            if scoped:
+                cmd += ["-m", self.mark_id]
             result = subprocess.run(
-                [
-                    "python", "-m", "pytest", self.bench_path,
-                    "--collect-only", "-q", "--level", "core",
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 cwd=self.repo_dir,
                 timeout=30,
             )
-            match = re.search(r"(\d+)\s+tests?\s+collected", result.stdout)
+            match = re.search(r"(\d+)\s*/\s*\d+\s+tests?\s+collected", result.stdout)
+            if not match:
+                match = re.search(r"(\d+)\s+tests?\s+collected", result.stdout)
             if not match:
                 match = re.search(r"(\d+)\s+item", result.stdout)
             if match:
                 count = int(match.group(1))
-                ok(f"benchmark case 数量: {count} (--level core)")
+                suffix = f"，-m {self.mark_id}" if scoped else ""
+                ok(f"benchmark case 数量: {count} (--level core{suffix})")
             else:
                 warn(f"无法解析 case 数量，输出: {result.stdout[:200]}")
         except subprocess.TimeoutExpired:
@@ -1510,8 +1597,7 @@ class OperatorChecker:
         if not os.path.isfile(self.test_path):
             return
 
-        with open(self.test_path, "r") as f:
-            content = f.read()
+        content = self.read_owned(self.test_path)
 
         has_nan_input = bool(re.search(
             r"nan|torch\.nan|float\(['\"]nan['\"]\)|torch\.full.*nan", content, re.IGNORECASE
@@ -1584,8 +1670,7 @@ class OperatorChecker:
         if not os.path.isfile(self.test_path):
             return
 
-        with open(self.test_path, "r") as f:
-            test_content = f.read()
+        test_content = self.read_owned(self.test_path)
 
         uses_limited_dtype = bool(re.search(
             r"\[torch\.float32\]|\[torch\.float64\]|\[torch\.float32,\s*torch\.float64\]",
@@ -1627,10 +1712,20 @@ class OperatorChecker:
             warn(f"{label}: 语法错误，跳过逐函数 mark 检查")
             return
 
+        # 共享文件（`a` 与 `_a` 同住 test_a.py）里只校验本算子的函数：邻居的
+        # 函数名/mark 按它自己的 id 派生，拿本算子的期望值去套必然误报。
+        scoped = (
+            owned_test_functions(filepath, self.mark_id)
+            if self.is_shared_test_file(filepath)
+            else None
+        )
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):
                 continue
             if not node.name.startswith("test_"):
+                continue
+            if scoped is not None and node.name not in scoped:
                 continue
 
             func_name = node.name
@@ -1787,8 +1882,7 @@ class OperatorChecker:
             # append a scenario suffix to inplace tests).
             test_has = False
             if os.path.isfile(self.test_path):
-                with open(self.test_path, "r") as f:
-                    test_content = f.read()
+                test_content = self.read_owned(self.test_path)
                 if re.search(rf"def test_{re.escape(inplace_id)}(?:\s*\(|_\w+\s*\()", test_content):
                     test_has = True
             if test_has:
@@ -1802,8 +1896,7 @@ class OperatorChecker:
             # 4. benchmark 函数
             bench_has = False
             if os.path.isfile(self.bench_path):
-                with open(self.bench_path, "r") as f:
-                    bench_content = f.read()
+                bench_content = self.read_owned(self.bench_path)
                 if re.search(rf"def test_{re.escape(inplace_id)}\s*\(", bench_content):
                     bench_has = True
             if bench_has:
@@ -1820,8 +1913,7 @@ class OperatorChecker:
         if not os.path.isfile(self.test_path):
             return
 
-        with open(self.test_path, "r") as f:
-            source = f.read()
+        source = self.read_owned(self.test_path)
 
         try:
             tree = ast.parse(source)
@@ -2042,8 +2134,8 @@ class OperatorChecker:
         for filepath, label in [(self.test_path, "测试文件"), (self.bench_path, "benchmark")]:
             if not os.path.isfile(filepath):
                 continue
-            with open(filepath, "r") as f:
-                content = f.read()
+            # 共享文件：邻居算子的 _out case 不能算作本算子的覆盖
+            content = self.read_owned(filepath)
             if out_func not in content and out_variant not in content:
                 self.errors.append(
                     f"kernel 导出了 {out_func}，但{label}中无对应测试"
@@ -2177,8 +2269,8 @@ class OperatorChecker:
             f"src/flag_gems/ops/{self.op_name}.py",
             "src/flag_gems/ops/__init__.py",
             "src/flag_gems/__init__.py",
-            f"tests/test_{self.op_id}.py",
-            f"benchmark/test_{self.op_id}.py",
+            f"tests/test_{self.test_file_id}.py",
+            f"benchmark/test_{self.test_file_id}.py",
             "conf/operators.yaml",
         ]
         return [f for f in files if os.path.isfile(os.path.join(self.repo_dir, f))]

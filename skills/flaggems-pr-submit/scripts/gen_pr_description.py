@@ -80,13 +80,18 @@ ERROR_RE = re.compile("|".join(ERROR_PATTERNS), re.IGNORECASE)
 
 
 def find_benchmark_file(repo_dir: Path, op_name: str) -> Path | None:
-    """Locate benchmark/test_<op>.py in repo."""
-    bench_file = repo_dir / "benchmark" / f"test_{op_name}.py"
-    if bench_file.exists():
-        return bench_file
-    # also try underscore-prefixed
+    """Locate benchmark/test_<op>.py in repo.
+
+    Test/benchmark file names drop the leading underscore: ``a`` and ``_a``
+    share ``benchmark/test_a.py`` (see ``paths.test_file_id``). The bare name is
+    therefore tried first.
+    """
     bare = op_name.lstrip("_")
     bench_file = repo_dir / "benchmark" / f"test_{bare}.py"
+    if bench_file.exists():
+        return bench_file
+    # legacy layout: a private-name op that still has its own test__<op>.py
+    bench_file = repo_dir / "benchmark" / f"test_{op_name}.py"
     if bench_file.exists():
         return bench_file
     # fallback: glob
@@ -94,6 +99,11 @@ def find_benchmark_file(repo_dir: Path, op_name: str) -> Path | None:
     if candidates:
         return candidates[0]
     return None
+
+
+def benchmark_mark(op_name: str) -> str:
+    """pytest marker for this op (``underscore``-prefixed for private names)."""
+    return f"underscore{op_name}" if op_name.startswith("_") else op_name
 
 
 def run_nvidia_benchmark(repo_dir: Path, op_name: str, timeout: int = 300) -> str:
@@ -104,7 +114,12 @@ def run_nvidia_benchmark(repo_dir: Path, op_name: str, timeout: int = 300) -> st
             f"No benchmark file found for '{op_name}' in {repo_dir}/benchmark/"
         )
     rel = bench_file.relative_to(repo_dir)
-    cmd = ["python", "-m", "pytest", str(rel), "--level", "core", "-s"]
+    # ``-m <mark>`` keeps a shared file (``a`` + ``_a`` in test_a.py) from
+    # reporting the neighbour operator's rows as this operator's performance.
+    cmd = [
+        "python", "-m", "pytest", str(rel),
+        "-m", benchmark_mark(op_name), "--level", "core", "-s",
+    ]
     result = subprocess.run(
         cmd,
         cwd=str(repo_dir),
@@ -538,7 +553,8 @@ def main():
             raw = run_nvidia_benchmark(repo_dir, op_name)
             bench_file = find_benchmark_file(repo_dir, op_name)
             nvidia_cmd = (
-                f"pytest {bench_file.relative_to(repo_dir)} --level core -s"
+                f"pytest {bench_file.relative_to(repo_dir)} "
+                f"-m {benchmark_mark(op_name)} --level core -s"
                 if bench_file
                 else ""
             )

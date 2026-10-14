@@ -97,8 +97,8 @@
 
 | 项目 | 旧格式 | 上游当前格式 |
 |------|-------|------------|
-| 测试文件 | 共享文件追加 | 每算子独立文件 `tests/test_<op>.py` |
-| Benchmark | 共享文件追加 | 每算子独立文件 `benchmark/test_<op>.py` |
+| 测试文件 | 共享大文件（按算子族） | 每算子一个 `tests/test_<op>.py`；`a` 与 `_a` 共用（去前导下划线），已存在则续写 |
+| Benchmark | 共享大文件 | 同上，`benchmark/test_<op>.py` |
 | Benchmark API | 直接 pytest parametrize | `base.UnaryPointwiseBenchmark()` 等封装类 |
 | operators.yaml | `name` 字段 | `id` 字段 |
 

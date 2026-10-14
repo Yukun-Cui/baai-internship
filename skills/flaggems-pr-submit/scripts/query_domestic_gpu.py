@@ -6,8 +6,12 @@ Usage:
     python query_domestic_gpu.py clamp_max --nvidia-speedup 0.60x --nvidia-cases 30
     python query_domestic_gpu.py special_airy_ai
 
-Outputs a Markdown Multi-backend Testing table ready to paste into a PR description.
-Also outputs Tested-on line for the Testing section.
+Outputs a Markdown Multi-backend Testing table.
+
+NOTE: the PR description no longer carries a ``Multi-backend Testing`` section
+and its ``Testing`` block is fixed to ``- Tested on: Nvidia H20`` (see
+``references/pr-template.md``). This script is now a local inspection tool for
+domestic-GPU results — do not paste its output into a PR body.
 """
 
 import argparse

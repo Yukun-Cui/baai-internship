@@ -7,8 +7,8 @@
 - [ ] `src/flag_gems/ops/<op>.py` — kernel 实现文件
 - [ ] `src/flag_gems/ops/__init__.py` — 添加 import 行 + `__all__` 条目（按字母序）
 - [ ] `src/flag_gems/__init__.py` — `_FULL_CONFIG` 添加条目（按字母序）
-- [ ] `tests/test_<op>.py` — 独立测试文件
-- [ ] `benchmark/test_<op>.py` — 独立 benchmark 文件
+- [ ] `tests/test_<op>.py` — 测试文件（文件名去前导下划线；已存在则续写，见 `naming.md`）
+- [ ] `benchmark/test_<op>.py` — benchmark 文件（同上）
 - [ ] `conf/operators.yaml` — 添加算子条目（按 `id` 字母序）
 
 ## Kernel 代码规范
@@ -39,11 +39,12 @@
 - [ ] `for` 列出对应 aten op 名，并与 `_FULL_CONFIG` dispatch key 命名约定一致
 - [ ] `labels` 必须包含 `aten` + `KernelGen`，可加 `pointwise`/`reduction` 等分类
 - [ ] `kind` 类别：`Math`/`Reduction`/`NeuralNetwork`/`LinearAlg`/`Tensor`
-- [ ] `stages` 新增算子统一用 `alpha: '5.4'`
+- [ ] `stages` 新增算子统一用 `alpha: '5.5'`（脚本强制覆盖 worktree 自带值）
 
 ## 测试文件规范
 
-- [ ] 独立文件 `tests/test_<op>.py`
+- [ ] 文件 `tests/test_<op>.py`（去前导下划线；与裸算子共用时追加写入，不覆盖原有内容）
+- [ ] 共用文件里本算子的 case 都带自己的 mark，且跑测试时用 `-m <mark>` 只选中自己
 - [ ] 使用相对导入：`from . import accuracy_utils as utils`
 - [ ] pytest mark 使用 canonical/variant id：helper case 用 canonical mark，真实 variant 用对应 variant mark
 - [ ] CPU-FP64 作为 Golden Reference（`utils.to_reference`）
@@ -57,7 +58,8 @@
 
 ## Benchmark 文件规范
 
-- [ ] 独立文件 `benchmark/test_<op>.py`
+- [ ] 文件 `benchmark/test_<op>.py`（去前导下划线；与裸算子共用时追加写入）
+- [ ] 共用 benchmark 文件时性能数据按 `-m <mark>` 采集，未混入同住算子的行
 - [ ] 使用 `from . import base, consts`（相对导入）
 - [ ] pytest mark 与 canonical/variant id 一致；benchmark `op_name` 使用固定 canonical/variant id，不用参数化 f-string
 - [ ] 多重载算子已用 `scripts/check_overload_consistency.py <op>` 校验 yaml id / benchmark mark+op_name / test mark 三方对齐
@@ -76,7 +78,7 @@
 - [ ] `git add` 只添加指定文件（**禁止 `git add -A` 或 `git add .`**）
 - [ ] commit message 格式：`[KernelGen][Nvidia] Add <op> operator with Triton kernel`
 - [ ] 分支命名：`pr/<operator>`
-- [ ] PR body 包含：PR Category / Type of Change / Description / Changes / Performance
+- [ ] PR body 段落为 Summary / Testing / Performance / Files Changed；Testing 末行 `- Tested on: Nvidia H20`，Performance 的 Test command 不带卡型后缀，**无 Multi-backend Testing 段**
 - [ ] PR body 不包含 `operator not in summary`、`TODO`、`FIXME`、`UNKNOWN`、parser/debug/artifact 等自动化内部文案
 
 ## 提交前最终确认

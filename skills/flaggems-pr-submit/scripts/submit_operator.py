@@ -28,7 +28,7 @@ from datetime import datetime
 import yaml
 
 from name_plan import build_name_plan
-from paths import RECORD_PATH, resolve_op_names
+from paths import RECORD_PATH, resolve_op_names, test_file_id
 from targets import add_target_args, resolve_target
 
 # Rule 17: AI/co-author attribution is forbidden in commit messages and PR bodies
@@ -128,13 +128,14 @@ def get_op_id(op_name, repo_dir=None):
 
 
 def get_changed_files(op_name, repo_dir, upstream_ref="upstream/infra-ci"):
-    op_id = get_op_id(op_name, repo_dir)
+    # 测试/benchmark 文件名去前导下划线（与裸算子共用），见 paths.test_file_id
+    file_id = test_file_id(op_name)
     files = [
         f"src/flag_gems/ops/{op_name}.py",
         "src/flag_gems/ops/__init__.py",
         "src/flag_gems/__init__.py",
-        f"tests/test_{op_id}.py",
-        f"benchmark/test_{op_id}.py",
+        f"tests/test_{file_id}.py",
+        f"benchmark/test_{file_id}.py",
         "conf/operators.yaml",
     ]
 
@@ -196,19 +197,10 @@ def _operator_mean_map(operator_means):
     return {item.get("operator"): item for item in operator_means or []}
 
 
-def _format_mean_speedups(operator_means, fallback_mean):
-    values = [item.get("speedup") for item in operator_means or []]
-    values = [v for v in values if isinstance(v, (int, float))]
-    if len(values) > 1:
-        return "/".join(f"{v:.3f}" for v in values)
-    if len(values) == 1:
-        return f"{values[0]:.3f}"
-    return f"{fallback_mean:.3f}"
-
-
 def format_pr_body(op_name, pr_data, repo_dir):
     """Generate full PR description markdown from JSON data."""
-    op_id = get_op_id(op_name, repo_dir)
+    # 测试/benchmark 路径用共用文件名（去前导下划线），见 paths.test_file_id
+    file_id = test_file_id(op_name)
     desc_text, kind = get_yaml_description(op_name, repo_dir)
     if not desc_text:
         desc_text = f"Triton kernel implementation for `{op_name}`."
@@ -222,7 +214,6 @@ def format_pr_body(op_name, pr_data, repo_dir):
 
     nv = pr_data.get("nvidia_benchmark", {})
     rows = nv.get("rows", [])
-    case_count = nv.get("case_count", len(rows))
     am_speedup = nv.get("arithmetic_mean_speedup", 0)
 
     # Performance table: one clear section per operator/variant.
@@ -279,61 +270,22 @@ def format_pr_body(op_name, pr_data, repo_dir):
 
     perf_table = "\n".join(perf_lines).rstrip()
 
-    # Multi-backend table (no separate Benchmark column — speedup shows mean when PASS)
-    domestic = pr_data.get("domestic_gpu", {})
-    backend_lines = []
-    backend_lines.append("| Backend | Accuracy Test | Speedup (mean) | Notes |")
-    backend_lines.append("|---|---|---|---|")
-    nvidia_speedup = _format_mean_speedups(operator_means, am_speedup)
-    backend_lines.append(
-        f"| Nvidia (H20) | PASS ({case_count} cases) | {nvidia_speedup} | Primary |"
-    )
-    backend_map = [
-        ("tianshu", "Tianshu"),
-        ("muxi", "Muxi"),
-        ("ascend", "Ascend"),
-        ("hygon", "Hygon"),
-    ]
-    for key, label in backend_map:
-        info = domestic.get(key, {})
-        acc_passed = info.get("accuracy_passed")
-        bench_passed = info.get("benchmark_passed")
-        acc = "PASS" if acc_passed else ("FAIL" if acc_passed is False else "N/A")
-
-        ms = info.get("bench_mean_speedup")
-        speedup_str = f"{ms:.3f}" if (bench_passed and ms) else "—"
-
-        te = info.get("test_error", "") or ""
-        be = info.get("bench_error", "") or ""
-        notes_parts = []
-        if te:
-            notes_parts.append(te[:60])
-        if be:
-            notes_parts.append(be[:60])
-        notes = "; ".join(notes_parts) if notes_parts else "—"
-
-        backend_lines.append(f"| {label} | {acc} | {speedup_str} | {notes} |")
-
-    backend_table = "\n".join(backend_lines)
-
     body = (
         f"## Summary\n"
         f"Adds a Triton kernel for `{op_name}`. {desc_text}\n\n"
         f"## Testing\n"
         f"- Validated against reference on device via `to_reference(inp, True)`\n"
-        f"- Tested on: Nvidia, Tianshu, Muxi, Ascend, Hygon\n\n"
+        f"- Tested on: Nvidia H20\n\n"
         f"## Performance\n"
-        f"Test command: `pytest benchmark/test_{op_id}.py --level core` (NVIDIA H20)\n\n"
+        f"Test command: `pytest benchmark/test_{file_id}.py --level core`\n\n"
         f"{perf_table}\n\n"
-        f"## Multi-backend Testing\n"
-        f"{backend_table}\n\n"
         f"## Files Changed\n"
         f"- `src/flag_gems/ops/{op_name}.py`: Triton kernel implementation\n"
-        f"- `tests/test_{op_id}.py`: Accuracy test\n"
-        f"- `benchmark/test_{op_id}.py`: Performance benchmark\n"
+        f"- `tests/test_{file_id}.py`: Accuracy test\n"
+        f"- `benchmark/test_{file_id}.py`: Performance benchmark\n"
         f"- `src/flag_gems/ops/__init__.py`: Register import and `__all__`\n"
         f"- `src/flag_gems/__init__.py`: Register to `_FULL_CONFIG`\n"
-        f"- `conf/operators.yaml`: Add operator entry (kind: {kind}, stage: alpha 5.4)"
+        f"- `conf/operators.yaml`: Add operator entry (kind: {kind}, stage: alpha 5.5)"
     )
 
     return body
@@ -372,6 +324,11 @@ def main():
     )
     op = plan.canonical_name
     op_id = get_op_id(op, repo)
+    # 测试/benchmark 文件名（与裸算子共用，无前导下划线）及本算子的 pytest mark。
+    # 共用文件里必须用 -m <mark> 选中自己的 case，否则会连邻居算子一起跑，
+    # benchmark 数据也会混进别人的行。
+    file_id = test_file_id(op)
+    _op_id, mark_id = resolve_op_names(repo, op)
     gpu = args.gpu
     token = args.token
 
@@ -435,7 +392,7 @@ def main():
 
     # ── Step 3: 本地测试 ──
     step(3, "本地测试 (pytest)")
-    test_file = f"tests/test_{op_id}.py"
+    test_file = f"tests/test_{file_id}.py"
     # Prepend the repo's src/ to PYTHONPATH so tests import THIS repo's flag_gems
     # (the system may have an editable install pointing at a different checkout).
     test_env = {
@@ -443,7 +400,7 @@ def main():
         "PYTHONPATH": os.path.join(repo, "src") + os.pathsep + os.environ.get("PYTHONPATH", ""),
     }
     result = run(
-        ["python", "-m", "pytest", test_file, "-x", "-v", "--timeout=60"],
+        ["python", "-m", "pytest", test_file, "-m", mark_id, "-x", "-v", "--timeout=60"],
         cwd=repo, timeout=180, check=False, capture=True,
         env=test_env,
     )
@@ -454,9 +411,9 @@ def main():
 
     # ── Step 4: benchmark ──
     step(4, "本地 benchmark (--level core)")
-    bench_file = f"benchmark/test_{op_id}.py"
+    bench_file = f"benchmark/test_{file_id}.py"
     result = run(
-        ["python", "-m", "pytest", bench_file, "--level", "core", "-s"],
+        ["python", "-m", "pytest", bench_file, "-m", mark_id, "--level", "core", "-s"],
         cwd=repo, timeout=300, check=False, capture=True,
         env=test_env,
     )

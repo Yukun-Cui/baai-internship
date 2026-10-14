@@ -17,6 +17,31 @@
 | benchmark 文件名 | `benchmark/test_cholesky_solve_helper.py` |
 | 测试函数名 | `def test_cholesky_solve_helper(...)` |
 
+## 测试/benchmark 文件名永不带前导下划线
+
+**测试和 benchmark 文件名不参与下面的冲突消歧**：无论是否与裸算子冲突，
+文件名一律是 `tests/test_<去掉前导下划线>.py` 和 `benchmark/test_<同>.py`。
+所以 `a` 和 `_a` **共用** `tests/test_a.py` 与 `benchmark/test_a.py`。
+
+写入规则：**文件已存在就续写**（保留原有全部内容，新 case 追加到末尾，重名
+def/class 跳过，import 合并），不存在才新建。`extract_from_worktree.py` 的
+`write_or_append()` 自动处理。
+
+两个算子在同一文件里靠各自的 mark 区分，互不干扰：
+
+```bash
+pytest tests/test_a.py -m a              # 只跑裸算子的 case
+pytest tests/test_a.py -m underscore_a   # 只跑私名算子的 case
+```
+
+因此 `check_operator.py` / `submit_operator.py` / `gen_pr_description.py` 在共享
+文件上全部按 `-m <mark>` 或 mark 范围工作：检查只看自己 mark 的函数（邻居算子
+的存量代码不属于本 PR diff，不报错），本地测试和 benchmark 也只跑自己的 case
+（否则 benchmark 数据会混进邻居的行）。
+
+> 共享的好处：两个算子同输入可比，能直接证明私有版没有额外开销；也免掉
+> reviewer 反复要求合并 "redundant underscore" 文件。
+
 ## 保留前导下划线的位置
 
 | 位置 | 示例 |
@@ -44,20 +69,22 @@
 | 位置 | 命名 |
 |------|------|
 | kernel 文件名 | `src/flag_gems/ops/_linalg_svd.py` |
-| 测试文件名 | `tests/test__linalg_svd.py`（`test_` + `_linalg_svd`，故双下划线） |
-| benchmark 文件名 | `benchmark/test__linalg_svd.py` |
+| 测试文件名 | `tests/test_linalg_svd.py`（**与裸算子共用**，不带前导下划线） |
+| benchmark 文件名 | `benchmark/test_linalg_svd.py`（**与裸算子共用**） |
 | 函数名 / API | `_linalg_svd` |
 | operators.yaml `id` | `_linalg_svd` |
 | benchmark `op_name` | `_linalg_svd` |
 | pytest mark | `@pytest.mark.underscore_linalg_svd` |
 | 测试函数名 | `def test__linalg_svd(...)` |
 
-对照的裸算子 `linalg_svd` 一切照常（id/API/文件名/mark 均为 `linalg_svd`），两者不再撞名。
+对照的裸算子 `linalg_svd` 的 id/API/mark 均为 `linalg_svd`，两者只在**文件名**
+上重合（同住 `test_linalg_svd.py`），其余都不撞名；文件内按 mark 区分。
 
 > 冲突为**自动探测**：当算子带前导下划线、且 `ops/` 目录已存在裸算子 kernel 文件或
 > `operators.yaml` 已有裸 `id` 时，`extract_from_worktree.py` / `check_operator.py` /
 > `submit_operator.py` / `check_overload_consistency.py` 都会自动切到冲突消歧命名，
-> 无需手动传参。探测逻辑集中在 `scripts/paths.py` 的 `resolve_op_names` / `id_to_mark`。
+> 无需手动传参。探测逻辑集中在 `scripts/paths.py` 的 `resolve_op_names` / `id_to_mark`；
+> 测试/benchmark 文件名走 `test_file_id`（恒去前导下划线，不受冲突影响）。
 
 ## 尾部下划线（inplace）
 

@@ -20,7 +20,7 @@ import sys
 
 import yaml
 
-from paths import id_to_mark, resolve_op_names
+from paths import id_to_mark, resolve_op_names, test_paths
 
 
 class Colors:
@@ -233,8 +233,8 @@ def main():
     op_id, _mark_id = resolve_op_names(repo, op_name)
 
     yaml_path = os.path.join(repo, "conf/operators.yaml")
-    bench_path = os.path.join(repo, f"benchmark/test_{op_id}.py")
-    test_path = os.path.join(repo, f"tests/test_{op_id}.py")
+    # 测试/benchmark 文件名去前导下划线（`a` 与 `_a` 共用），见 paths.test_file_id
+    test_path, bench_path = test_paths(repo, op_name)
 
     print(f"{Colors.BOLD}多重载一致性检查: {op_name}{Colors.END}")
     print(f"仓库: {repo}")
