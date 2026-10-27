@@ -97,6 +97,10 @@ description and speedup data).
 21. **block_size 等超参优先用 `@triton.autotune`** — 参考 `celu.py` 的 autotune 配置。hardcode 需注释说明
 22. **使用规范命名 + 回填 PR 链接** — 提交前 `operator_registry.py lookup`，PR 创建后 `backfill`
 23. **所有异常记录到 pr状态记录.md** — 包括本地通过但 CI 不过、hardcode 超参、加速比偏低等
+24. **连续提交多个 PR 必须限速** — 每提交完一个 PR 等 1-2 分钟再提交下一个，不要短时间内连着交。
+    短时间涌入多个 PR 会让 CI 调度把一部分任务挤掉（排队被抢占或根本不触发），PR 看起来没跑全流水线，
+    只能手动重跑。批量提交结束后逐个确认每个 PR 的 CI 任务都真的起来了
+    （`gh pr checks <PR> --repo <upstream>`），缺的手动重触发
 
 ## Data Sources
 
@@ -363,5 +367,6 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 ## Batch Submission Notes
 
 - 每批处理 10-20 个 PR，`gh` API 调用间 sleep 5s 避免限流
+- 每个 PR 提交之间间隔 1-2 分钟（Rule 24），连着交会让部分 CI 任务被挤掉
 - 优先 pointwise（更简单、review 更快）
 - 逐算子记录成功/失败到 `data/pr状态记录.md`

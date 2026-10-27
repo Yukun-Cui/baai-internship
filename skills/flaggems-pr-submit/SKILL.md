@@ -73,6 +73,7 @@ description: >
 57. **kernel 文件名裸名化（无裸名孪生时）** — pytorch 原生不存在同名裸算子时，实现文件用裸名 `src/flag_gems/ops/a.py`（不再叫 `_a.py`），跟随 `values.py`（id `values`/for `_values`）、`neg_view_copy.py`、`indices_copy.py` 先例。原因：CI 的 `derive_changed_operators.py` 按文件 stem 派生 marker——stem 为 `_a` 且 stripped `a` 存在于 merge 后 yaml（本 PR 新增的裸 id 也算）时会派生 `underscore_a`，与测试裸 mark 不一致 → `pytest -m` 选 0 用例 → python-op 失败（日志特征 `Running 0 items in this shard`）。wrapper 函数名、`_FULL_CONFIG` 的 aten 注册键、yaml `for` 仍保留 ATen 名 `_a`。本地必须验证 `tools/ci_checks/derive_changed_operators.py --ops-only --changed-files "src/flag_gems/ops/<stem>.py"` 的输出与测试 mark 一致。
 58. **bare/underscore 共用测试文件必须声明 pytestmark 双 mark** — bare 与 `_a` 两个算子同住 `tests/test_a.py` 时，文件前半部分（import 之后）声明 `pytestmark = [pytest.mark.a, pytest.mark.underscore_a]`。原因：(1) `check_operator_markers` 只认函数级 `@pytest.mark.<marker>` 装饰器，模块级 `pytestmark` 不算数，两侧用例都需函数级 mark；(2) derive marker 的口径随合并状态漂移（bare 合并前 derive 出裸 mark、合并后出 `underscore_` 前缀），双声明让两种状态下 `pytest -m` 都能选中。bare 与 `_` 版本共存时 benchmark 类名加 `Underscore` 前缀避免撞名（如 `UnderscoreIndicesCopyBenchmark`）。
 59. **共享注册文件以「master 原文 + 精确插入」重建，禁止 sorter --fix 生成** — `operators.yaml`、两个 `__init__.py` 因 base 陈旧出现无关 diff 时，从 GitHub API 拉 master 当前原文，用脚本在 `str.casefold()` 排序的正确位置仅插入本算子的行（yaml 条目、`_FULL_CONFIG` 键、`__all__` 条目），master 已有内容（含行内注释如 `_pin_memory`/`aten::dim`/`nested_to_padded_tensor`/`pin_memory` 四处说明）一字不动。**禁止把 `sort_exports.py --fix` 的输出作为最终内容**——它会全量重写并丢弃行内注释、重排 import，制造大量无关 diff（真实案例 #7225 reviewer 指出 `nested_to_padded_tensor` 条目被移动）。`--fix` 只用于本地预演。本地校验 isort 必须用与 CI 相同的 5.12.0（6.x 行为不同）：`pip install isort==5.12.0 --target /tmp/isort512 && PYTHONPATH=/tmp/isort512 python3 -m isort --profile black -o packaging --check-only ...`。详见 `references/naming.md`。
+60. **连续提交多个 PR 必须限速** — 每提交完一个 PR 等 1-2 分钟再提交下一个，不要短时间内连着交。短时间涌入多个 PR 会让 CI 调度把一部分任务挤掉（排队被抢占或根本不触发），PR 看起来没跑全流水线，只能手动重跑。批量提交结束后逐个确认每个 PR 的 CI 任务都真的起来了（`gh pr checks <PR> --repo <upstream>`），缺的手动重触发。
 
 ### Review Hygiene Rules（普通算子 PR）
 
@@ -276,6 +277,8 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.p
 - `--dry-run` — 只验证不提交（调试用，仍会运行测试和 benchmark）
 - `--gpu <N>` — 测试/benchmark 用的 GPU 编号（默认 `0`）。**脚本内部会按此值设置 `CUDA_VISIBLE_DEVICES`，并覆盖命令行外层 `CUDA_VISIBLE_DEVICES` 前缀，因此选卡必须用 `--gpu`，写在命令前的 `CUDA_VISIBLE_DEVICES=<N>` 会被忽略。**
 - `--token`、`--source-name`、`--canonical-name`、`--impl-name` — 高级覆盖项，一般用默认即可。
+
+连续提交多个算子时，每个 `submit_operator.py` 之间间隔 1-2 分钟（Rule 60），否则部分 PR 的 CI 任务会被挤掉。
 
 ### Phase 8: Review Comment 修复流程（PR 提交后）
 

@@ -142,6 +142,10 @@ description and speedup data).
    ```
    这是合法的。`pass` 是占位符，`@use_tl_extra` 装饰器在 JIT 时用 `tl.math.lgamma` 替换函数体。
    只要该函数在 kernel 中被实际调用就应保留；如果未被调用则必须删除（如未使用的 `exp`/`pow` 桩函数）
+27. **连续提交多个 PR 必须限速** — 每提交完一个 PR 等 1-2 分钟再提交下一个，不要短时间内连着交。
+   短时间涌入多个 PR 会让 CI 调度把一部分任务挤掉（排队被抢占或根本不触发），PR 看起来没跑全流水线，
+   只能手动重跑。批量提交结束后逐个确认每个 PR 的 CI 任务都真的起来了（`gh pr checks <PR> --repo <upstream>`），
+   缺的手动重触发。
 
 ## Configuration
 
@@ -626,6 +630,7 @@ When reviewing Ascend operator code, pay special attention to:
 
 When submitting multiple operators:
 - Process 10-20 PRs per batch
+- Wait 1-2 minutes between PR submissions (Rule 27) — back-to-back submissions get some CI jobs dropped
 - Sleep 5 seconds between gh API calls to avoid rate limits
 - Prioritize pointwise operators (simpler, reviewed faster)
 - Log success/failure for each operator
