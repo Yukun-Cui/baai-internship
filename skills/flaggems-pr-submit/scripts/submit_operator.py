@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FlagGems 算子 PR 一站式提交脚本。
 
-串行执行 9 个步骤，任何一步失败立即中断：
+串行执行 8 个步骤，任何一步失败立即中断：
   1. check_operator.py 验证
   2. pre-commit 格式化
   3. 本地测试 (pytest tests/)
@@ -10,7 +10,6 @@
   6. git add + commit
   7. git push
   8. gh pr create (自动组装描述)
-  9. operator_registry.py backfill
 
 用法:
     python submit_operator.py <op> --repo-dir /path/to/FlagGems --gpu 0
@@ -28,7 +27,7 @@ from datetime import datetime
 import yaml
 
 from name_plan import build_name_plan
-from paths import RECORD_PATH, resolve_op_names, test_file_id
+from paths import resolve_op_names, test_file_id
 from targets import add_target_args, resolve_target
 
 # Rule 17: AI/co-author attribution is forbidden in commit messages and PR bodies
@@ -40,9 +39,6 @@ AI_ATTRIBUTION_RE = re.compile(
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = "/root/FlagGems"
 
-# 当前正在提交的算子名（用于 fatal 中记录事件）
-_current_op = None
-
 
 class Colors:
     OK = "\033[92m"
@@ -53,7 +49,7 @@ class Colors:
 
 
 def step(n, msg):
-    print(f"\n{Colors.CYAN}{Colors.BOLD}[Step {n}/9] {msg}{Colors.END}")
+    print(f"\n{Colors.CYAN}{Colors.BOLD}[Step {n}/8] {msg}{Colors.END}")
 
 
 def ok(msg):
@@ -64,22 +60,8 @@ def warn(msg):
     print(f"  {Colors.CYAN}⚠{Colors.END} {msg}")
 
 
-def record_event(op, event_type, message):
-    """追加事件到 pr状态记录.md"""
-    try:
-        os.makedirs(os.path.dirname(RECORD_PATH), exist_ok=True)
-        date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        line = f"| {date} | {op} | {event_type} | {message} |\n"
-        with open(RECORD_PATH, "a") as f:
-            f.write(line)
-    except Exception:
-        pass
-
-
 def fatal(msg):
     print(f"\n  {Colors.FAIL}✗ FATAL: {msg}{Colors.END}")
-    if _current_op:
-        record_event(_current_op, "FAIL", msg[:100].replace("|", "/").replace("\n", " "))
     sys.exit(1)
 
 
@@ -332,8 +314,6 @@ def main():
     gpu = args.gpu
     token = args.token
 
-    global _current_op
-    _current_op = op
     if not args.dry_run and not token:
         fatal("GH_TOKEN is not set; export GH_TOKEN or pass --token before creating a PR")
 
@@ -455,13 +435,6 @@ def main():
             "继续提交，仅作为性能提醒"
         )
         warn(msg)
-        record_event(op, "LOW_SPEEDUP", msg)
-
-    for backend, info in pr_data.get("domestic_gpu", {}).items():
-        ms = info.get("bench_mean_speedup")
-        acc = "PASS" if info.get("accuracy_passed") else "FAIL"
-        speedup_str = f"{ms:.3f}" if ms else "—"
-        ok(f"{backend}: acc={acc}, speedup={speedup_str}")
 
     if nv_case_count == 0:
         fatal("benchmark 无数据（0 case），请检查 benchmark 文件")
@@ -541,24 +514,6 @@ def main():
         except Exception:
             fatal(f"PR 创建响应解析失败: {result.stdout[:500]}")
         ok(f"PR 创建成功: {pr_url}")
-        record_event(op, "PR_CREATED", pr_url)
-
-    # ── Step 9: backfill ──
-    step(9, "回填 PR 链接")
-    if args.dry_run or pr_url == "(dry-run)":
-        print("  ⚠ DRY RUN — 跳过回填")
-    else:
-        result = run(
-            ["python", os.path.join(SCRIPTS_DIR, "operator_registry.py"), "backfill", op, pr_url],
-            timeout=30,
-            check=False,
-            capture=True,
-        )
-        if result is not None and result.returncode == 0:
-            ok("回填完成")
-        else:
-            warn("回填未成功，请手动检查 operator_registry 规范名表")
-            record_event(op, "BACKFILL_WARN", "operator_registry backfill did not return success")
 
     # ── Done ──
     print(f"\n{Colors.OK}{Colors.BOLD}✓ 全部完成！{Colors.END}")

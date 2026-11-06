@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # create_pr.sh <op> [--repo-dir DIR] [--fork-owner OWNER] [--upstream REPO] [--dry-run]
-# 生成 PR description + 创建 upstream PR + 回填链接
+# 生成 PR description + 创建 upstream PR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -99,11 +99,6 @@ PR_URL=$(gh pr create \
     --body "$PR_BODY" 2>&1)
 
 echo "[✓] PR 创建成功: ${PR_URL}"
-
-# 3. 回填链接
-echo "[*] 回填 PR 链接..."
-python3 "$SCRIPT_DIR/operator_registry.py" backfill "$OP" "$PR_URL" 2>&1 || \
-    echo "[!] 回填失败，请手动: python operator_registry.py backfill $OP $PR_URL"
 
 echo ""
 echo "=== create_pr 完成 ==="

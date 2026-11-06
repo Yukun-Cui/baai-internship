@@ -1,20 +1,8 @@
 # Workflow 详细操作指南
 
-## Phase 0: Name Lookup
+## Phase 0: Naming
 
-```bash
-python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry.py lookup <op>
-```
-
-输出示例：
-```
-算子名:     _cholesky_solve_helper
-规范名:     _cholesky_solve_helper
-加速比:     15.1576
-PR链接:     (未提交)
-规范名表行: 120
-```
-
+规范名由调用方通过 `--canonical-name` 显式给出（不指定时等于输入名）。
 规范名影响：yaml `id`、pytest mark、PR title、benchmark `op_name`（均使用去掉前导下划线的版本）。
 大部分 aten 算子规范名和原名相同，仅少数 fused 算子需转 PascalCase。
 新增前还要查 `conf/operators.yaml`、`_FULL_CONFIG`、tests、benchmark：真实 variant（inplace/out/Scalar/Tensor）独立覆盖，alias 使用已有 canonical id。
@@ -165,16 +153,6 @@ pre-commit run --files src/flag_gems/ops/<op>.py tests/test_<op>.py benchmark/te
 - ❌ **禁止 cherry-pick** — worktree 代码结构与上游不同，容易带入旧基线并造成 PR merge conflict
 - ❌ **禁止 rebase** — 分支已基于 upstream/infra-ci 创建
 - 只 stage 6 个文件，分支名 `pr/<op>`，push 到 `origin`（指向 fork `Yukun-Cui/FlagGems-Experimental`，由 `submit_operator.py` 固定）
-
-## Phase 7: Backfill
-
-```bash
-python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry.py backfill <op> <pr_url>
-
-# 查看状态
-python scripts/operator_registry.py pending --limit 20
-python scripts/operator_registry.py submitted
-```
 
 ## Code Review Focus Points
 

@@ -514,15 +514,13 @@ Hard requirements:
 
 Required flow:
 1. cd "{worktree_dir}"
-2. Run:
-   python "{scripts_dir / "operator_registry.py"}" lookup "{op_name}"
-3. Run extraction, using explicit source/impl/canonical args only if needed by the skill naming rules:
+2. Run extraction, using explicit source/impl/canonical args only if needed by the skill naming rules:
    python "{scripts_dir / "extract_from_worktree.py"}" "{op_name}" --repo-dir "{worktree_dir}"
-4. Repair any extraction, naming, dtype, mark, benchmark, yaml, formatting, or strict-check failures.
-5. Before final submission, run:
+3. Repair any extraction, naming, dtype, mark, benchmark, yaml, formatting, or strict-check failures.
+4. Before final submission, run:
    python "{scripts_dir / "check_operator.py"}" "{op_name}" --repo-dir "{worktree_dir}" --strict
    pre-commit run --files <all changed files>
-6. Final command must be:
+5. Final command must be:
    {submit_cmd}
 
 Dry-run mode: {"ON - do not push or create a PR; submit_operator.py --dry-run is required." if dry_run else "OFF - create the PR if all gates pass."}

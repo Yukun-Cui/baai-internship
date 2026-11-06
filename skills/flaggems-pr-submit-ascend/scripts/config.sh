@@ -16,7 +16,6 @@
 #   FLAGGEMS_TITLE_PREFIX   commit / PR 标题前缀，默认 [KernelGen][Ascend]
 #   FLAGGEMS_GIT_NAME / FLAGGEMS_GIT_EMAIL  期望的提交身份（仅校验，不改写 git config）
 #   FLAGGEMS_PYTHON         python 解释器，默认 python3
-#   FLAGGEMS_CONDA_ENV      非空且 conda 可用时，先激活该环境
 
 ASCEND_OPS="${FLAGGEMS_ASCEND_OPS:-src/flag_gems/runtime/backend/_ascend/ops}"
 
@@ -29,7 +28,6 @@ BRANCH_PREFIX="${FLAGGEMS_BRANCH_PREFIX:-pr/ascend-}"
 TITLE_PREFIX="${FLAGGEMS_TITLE_PREFIX:-[KernelGen][Ascend]}"
 
 PYTHON_BIN="${FLAGGEMS_PYTHON:-python3}"
-CONDA_ENV="${FLAGGEMS_CONDA_ENV:-}"
 
 # 解析仓库路径：--repo-dir 优先，其次 FLAGGEMS_REPO。都没有则报错退出，不猜路径。
 resolve_repo_dir() {
@@ -115,16 +113,3 @@ expected_identity_desc() {
     fi
 }
 
-# 运行 skill 内的 python 脚本，按需激活 conda 环境
-skill_python() {
-    if [[ -n "$CONDA_ENV" ]] && command -v conda &>/dev/null; then
-        local hook
-        hook="$(conda shell.bash hook 2>/dev/null || true)"
-        if [[ -n "$hook" ]]; then
-            eval "$hook" || true
-            conda activate "$CONDA_ENV" 2>/dev/null || \
-                echo "[!] conda activate ${CONDA_ENV} 失败，使用当前环境" >&2
-        fi
-    fi
-    "$PYTHON_BIN" "$@"
-}

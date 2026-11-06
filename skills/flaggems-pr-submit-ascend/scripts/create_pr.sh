@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # create_pr.sh <op> [--repo-dir DIR] [--summary PATH] [--dry-run]
-# 生成 PR description + 创建 upstream PR + 回填链接
+# 生成 PR description + 创建 upstream PR
 #
 # 路径来自 --repo-dir / FLAGGEMS_REPO，benchmark 数据来自 --summary / FLAGGEMS_SUMMARY_JSON。
 # fork owner 默认从 fork remote URL 推导，可用 FLAGGEMS_FORK_OWNER 覆盖。
@@ -95,13 +95,6 @@ PR_URL=$(gh pr create \
     --body "$PR_BODY" 2>&1)
 
 echo "[✓] PR 创建成功: ${PR_URL}"
-
-# 3. 回填链接
-echo "[*] 回填 PR 链接..."
-if ! skill_python "$SCRIPT_DIR/operator_registry.py" backfill "$OP" "$PR_URL"; then
-    echo "[!] 回填失败，请手动执行:" >&2
-    echo "    ${PYTHON_BIN} ${SCRIPT_DIR}/operator_registry.py backfill ${OP} ${PR_URL}" >&2
-fi
 
 echo ""
 echo "=== create_pr 完成 ==="

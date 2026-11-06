@@ -53,8 +53,7 @@ EOF
 | Arithmetic Mean | `nvidia_benchmark.operator_means[]`（算术平均）；单 variant 可回退到 `nvidia_benchmark.arithmetic_mean_speedup` |
 | Performance case 数 | `nvidia_benchmark.case_count` |
 
-PR body 只报 Nvidia H20 数据，不含 Multi-backend Testing 段，所以 `domestic_gpu.*`
-字段不进 PR 描述（脚本仍会输出，供本地核对）。
+PR body 只报 Nvidia H20 数据，不含 Multi-backend Testing 段。
 
 ## 填写规则
 

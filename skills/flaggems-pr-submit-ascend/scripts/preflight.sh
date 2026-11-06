@@ -148,15 +148,6 @@ else
     warn "Benchmark: summary.json 不存在 ($SUMMARY_JSON)"
 fi
 
-# 7. 规范名查询（依赖 pandas/openpyxl，缺失时降级为 warning）
-if REG_OUT=$(skill_python "$SCRIPT_DIR/operator_registry.py" lookup "$OP" 2>&1); then
-    echo ""
-    echo "$REG_OUT"
-else
-    warn "operator_registry.py 执行失败（规范名表未配置或缺少 pandas/openpyxl）"
-    echo "$REG_OUT" | tail -3 | sed 's/^/     /'
-fi
-
 # Summary
 echo ""
 echo "=== 结果: ${PASS} passed, ${FAIL} failed, ${WARN} warnings ==="

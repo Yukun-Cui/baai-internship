@@ -55,8 +55,7 @@ description and speedup data).
    - 原则：aten dispatch 会自动路由到我们的 kernel，参考计算应使用公开 API
 9. **每个 PR 分支只包含一个 aten 算子** — 例如 `igammac` 和 `igammac_` 不可一起提交，必须分开。
    提交前必须运行 `git diff --name-only upstream/master..HEAD` 确认没有混入其他算子的文件
-10. **使用规范命名** — 提交前必须查询 `规范名.xlsx` 获取算子的规范名称
-11. **回填 PR 链接** — PR 创建后必须将链接回填到 `规范名.xlsx` 的代码路径列
+10. **使用规范命名** — 规范名与生成名不同时，最终 diff 必须全部使用规范名
 12. **dtype 预检测** — 在写测试前，必须检查该算子的 PyTorch 参考实现是否支持 Half/BFloat16。
    很多底层 CUDA 算子（如 `bessel_j1_cuda`, `igammac_cuda`, `airy_ai_cuda`, `cdist_cuda`,
    `linalg_eig`, `linalg.inv` 等）不支持低精度。检测方法：在 worktree kernel 源码或
@@ -105,11 +104,11 @@ description and speedup data).
 21. **无效 if/else 分支清理** — 如果 pointwise_dynamic 已经处理了类型分发，不需要手动
    `isinstance(A, torch.Tensor)` 判断。多余的分支必须清理
 22. **block_size 等超参避免 hardcode** — 应使用 `@triton.autotune` 自动调整。如果确实
-   hardcode 了，需要在 `pr状态记录.md` 的"Hardcode 超参记录"中说明原因
+   hardcode 了，需要在代码注释和交付说明里写明原因
 23. **测试 case 参数使用公共变量** — 优先使用 `utils.FLOAT_DTYPES`、`utils.POINTWISE_SHAPES` 等。
    即使 worktree 原版用了手写 shapes（如 `[(2, 3), (128, 256)]`），提交时也应替换为公共常量。
    如果需要自定义参数，必须加注释说明原因
-24. **所有异常记录到 pr状态记录.md** — 包括本地通过但 CI 精度不过的情况、hardcode 超参等
+24. **异常如实报告** — 本地通过但 CI 精度不过的情况、hardcode 超参等必须在交付说明里写明
 25. **未注册/未测试的函数必须删除** — 如果 kernel 文件中定义了函数（如 inplace 版本 `<op>_`），
    但该函数没有在 `_ascend/ops/__init__.py` 注册、没有在 `__all__` 导出、没有对应测试，则必须删除。
    每个 PR 只提交一个 aten 算子（规则 9），kernel 文件中只应包含该算子需要的函数
@@ -158,11 +157,8 @@ Bash 脚本从 `scripts/config.sh` 读取这些变量；Python 脚本直接读�
 |------|------|------|
 | `FLAGGEMS_REPO` | 是 | FlagGems 仓库路径（也可每次传 `--repo-dir`） |
 | `FLAGGEMS_SUMMARY_JSON` | benchmark 步骤需要 | auto_gen 结果 `summary.json` 路径 |
-| `FLAGGEMS_NORM_XLSX` | Phase 0 / 回填需要 | 规范名表，列：`算子名`, `算子名（规范命名）`, `代码路径` |
-| `FLAGGEMS_PR_XLSX` | Phase 0 需要 | 待提交算子表，列：`算子名称`(含 `aten::` 前缀), `加速比` |
 | `FLAGGEMS_FORK_OWNER` | 否 | fork 的 GitHub owner；默认从 fork remote URL 推导 |
 | `FLAGGEMS_GIT_NAME` / `FLAGGEMS_GIT_EMAIL` | 否 | 期望的提交身份，**仅校验不改写** `git config` |
-| `FLAGGEMS_CONDA_ENV` | 否 | 非空且有 conda 时，运行 registry 脚本前激活该环境 |
 | `FLAGGEMS_PYTHON` | 否 | python 解释器，默认 `python3` |
 
 有默认值、通常不用改：
@@ -182,13 +178,10 @@ Bash 脚本从 `scripts/config.sh` 读取这些变量；Python 脚本直接读�
 ```bash
 export FLAGGEMS_REPO=/path/to/FlagGems
 export FLAGGEMS_SUMMARY_JSON=/path/to/auto_gen/results/ascend/summary.json
-export FLAGGEMS_NORM_XLSX=/path/to/规范名.xlsx
-export FLAGGEMS_PR_XLSX=/path/to/第一批pr算子.xlsx
 ```
 
 **前置依赖：**
 - `gh` CLI 且已 `gh auth login`（创建 PR 用；未安装时 `create_pr.sh --dry-run` 仍可生成 PR body）
-- `pandas` + `openpyxl`（`operator_registry.py` 用）
 - git remote：一个指向 upstream，一个指向你的 fork（默认名 `upstream` / `fork`）
 
 Worktrees 位于 `${FLAGGEMS_REPO}/.worktrees/gen-<op>`。
@@ -216,24 +209,9 @@ For each operator, execute these phases in order:
 - **operators.yaml `for`**: `- _cholesky_solve_helper`
 - **代码中实际调用**: `torch._cholesky_solve_helper(...)`
 
-### Phase 0: Name Lookup (MUST DO FIRST)
+### Phase 0: Naming
 
-用 `operator_registry.py` 查询算子信息，确认规范名和加速比。
-需要 `pandas` + `openpyxl`，以及 `FLAGGEMS_NORM_XLSX` / `FLAGGEMS_PR_XLSX` 已配置。
-如果依赖装在 conda 环境里，设 `FLAGGEMS_CONDA_ENV=<env>` 让脚本自动激活。
-
-```bash
-python <skill>/scripts/operator_registry.py lookup <operator_name>
-```
-
-输出示例：
-```
-算子名:     _cholesky_solve_helper
-规范名:     _cholesky_solve_helper
-加速比:     15.1576
-PR链接:     (未提交)
-规范名表行: 120
-```
+规范名由调用方给出（不另行指定时等于算子原名）。
 
 **规范名影响以下位置：**
 - `conf/operators.yaml` 的 `id` 字段 → 使用规范名（去掉前导下划线后的版本）
@@ -576,29 +554,6 @@ EOF
 - Performance table must contain actual measured speedup (run benchmark in worktree before submitting)
 - Files Changed must list accurate file paths — no garbled URLs
 - `<op_id>` in file list is the name without leading underscore (e.g., `test_cholesky_solve_helper.py`)
-
-### Phase 7: Backfill PR Link (MUST DO)
-
-PR 创建成功后，**必须**将链接回填到 `规范名.xlsx`：
-
-```bash
-python <skill>/scripts/operator_registry.py backfill <operator_name> <pr_url>
-```
-
-示例：
-```bash
-python <skill>/scripts/operator_registry.py \
-  backfill _cholesky_solve_helper https://github.com/flagos-ai/FlagGems/pull/3354
-```
-
-**查看待提交/已提交状态：**
-```bash
-# 列出待提交的算子（按加速比排序）
-python .../operator_registry.py pending --limit 20
-
-# 列出已提交的算子
-python .../operator_registry.py submitted
-```
 
 ## Code Review Focus Points
 

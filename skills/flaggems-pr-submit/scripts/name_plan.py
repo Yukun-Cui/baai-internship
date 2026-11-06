@@ -14,13 +14,8 @@ from __future__ import annotations
 import ast
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-
-try:
-    import operator_registry
-except Exception:  # pragma: no cover - scripts should still run without registry deps
-    operator_registry = None
 
 
 @dataclass(frozen=True)
@@ -33,9 +28,6 @@ class NamePlan:
     impl_op_id: str
     canonical_op_id: str
     worktree_dir: str
-    registry_row: int | None = None
-    registry_pr_url: str | None = None
-    registry_speedup: str | None = None
 
     @property
     def renamed(self) -> bool:
@@ -48,25 +40,6 @@ def op_id(name: str) -> str:
 
 def normalize_key(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z]+", "", name).lower()
-
-
-def _lookup(name: str) -> dict:
-    if operator_registry is None:
-        return {}
-    try:
-        return operator_registry.lookup(name)
-    except Exception:
-        return {}
-
-
-def _valid_norm(result: dict) -> str | None:
-    norm = str(result.get("规范名") or "").strip()
-    if not norm or norm == "nan":
-        return None
-    # operator_registry falls back to input when the norm table has no row.
-    if result.get("行号") is None:
-        return None
-    return norm
 
 
 def _find_worktree_source(repo_dir: str, name: str) -> tuple[str | None, str | None]:
@@ -177,8 +150,8 @@ def build_name_plan(
     if not clean:
         raise ValueError("operator name is empty")
 
-    lookup_result = _lookup(clean)
-    canonical = canonical_name or _valid_norm(lookup_result) or clean
+    # 规范名只能由 --canonical-name 显式给出；没有规范名表可查。
+    canonical = canonical_name or clean
 
     source = source_name
     worktree = worktree_dir
@@ -214,9 +187,6 @@ def build_name_plan(
         impl_op_id=op_id(impl),
         canonical_op_id=op_id(canonical),
         worktree_dir=worktree or str(Path(repo_dir) / ".worktrees" / f"gen-{source}"),
-        registry_row=lookup_result.get("行号"),
-        registry_pr_url=lookup_result.get("PR链接"),
-        registry_speedup=lookup_result.get("加速比"),
     )
 
 
@@ -243,6 +213,8 @@ def load_name_plan(repo_dir: str, canonical_name: str) -> NamePlan | None:
         data.setdefault("impl_op_id", op_id(data["impl_name"]))
         data.setdefault("source_op_id", op_id(data.get("source_name", canonical_name)))
         data.setdefault("canonical_op_id", op_id(data.get("canonical_name", canonical_name)))
-        return NamePlan(**data)
+        # 旧版 plan JSON 可能还带 registry_* 字段（规范名表已移除），忽略未知键。
+        known = {f.name for f in fields(NamePlan)}
+        return NamePlan(**{k: v for k, v in data.items() if k in known})
     except Exception:
         return None

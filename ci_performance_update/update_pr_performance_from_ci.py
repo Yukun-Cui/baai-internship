@@ -28,7 +28,7 @@ SKILL_SCRIPTS_DIR = Path(
 ).resolve()
 sys.path.insert(0, str(SKILL_SCRIPTS_DIR))
 
-from gen_pr_description import compute_operator_means, query_domestic_gpu
+from gen_pr_description import compute_operator_means
 from submit_operator import format_pr_body, get_op_id
 
 
@@ -509,7 +509,6 @@ def build_pr_data(op_name: str, rows: list[dict]) -> dict:
             "arithmetic_mean_speedup": round(am_speedup, 3),
             "operator_means": compute_operator_means(rows, op_name),
         },
-        "domestic_gpu": query_domestic_gpu(op_name),
         "warnings": [],
     }
 

@@ -94,15 +94,6 @@ cd "$WORKTREE_DIR"
 git remote set-url origin "https://${GH_TOKEN}@github.com/${FORK_REPO}.git" 2>/dev/null || true
 
 # ============================================================================
-# Phase 2: operator_registry.py lookup
-# ============================================================================
-echo "=== Phase 2: operator_registry.py lookup ===" >> "$LOG_FILE"
-if ! python "$SCRIPTS_DIR/operator_registry.py" lookup "$OP_NAME" >> "$LOG_FILE" 2>&1; then
-    write_json "failed" "Phase 2" "operator_registry.py lookup failed"
-    exit 1
-fi
-
-# ============================================================================
 # Phase 3: extract_from_worktree.py
 # ============================================================================
 echo "=== Phase 3: extract_from_worktree.py ===" >> "$LOG_FILE"
@@ -112,8 +103,8 @@ if ! python "$SCRIPTS_DIR/extract_from_worktree.py" "$OP_NAME" --repo-dir "$WORK
 fi
 
 # ============================================================================
-# Phase 4-7: submit_operator.py (validate, test, benchmark, commit, push, PR, backfill)
-#   submit_operator.py 串行执行 9 步，任何一步失败立即 exit(1)。
+# Phase 4-7: submit_operator.py (validate, test, benchmark, commit, push, PR)
+#   submit_operator.py 串行执行 8 步，任何一步失败立即 exit(1)。
 #   PR title/body/gh pr create 完全由 submit_operator.py 内部完成，
 #   batch 层不参与 PR 描述生成。
 # ============================================================================

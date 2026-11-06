@@ -98,15 +98,6 @@ else
     echo "          --pytest benchmark/test_${OP}.py -m ${OP} -vs | tee ${BENCH_LOG}"
 fi
 
-# 8. 规范名查询
-REG_OUT=$(python3 "$SCRIPT_DIR/operator_registry.py" lookup "$OP" 2>/dev/null || echo "ERROR")
-if [[ "$REG_OUT" != "ERROR" ]]; then
-    echo ""
-    echo "$REG_OUT"
-else
-    warn "operator_registry.py 执行失败（确认 openpyxl/pandas 已装、xlsx 存在）"
-fi
-
 # Summary
 echo ""
 echo "=== 结果: ${PASS} passed, ${FAIL} failed, ${WARN} warnings ==="

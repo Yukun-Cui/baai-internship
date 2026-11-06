@@ -95,23 +95,12 @@ description and speedup data).
 20. **提交前在 worktree 测试并获取加速比** — 特化实现**至少不能比通用实现差**。PR 描述 Performance
     表格必须填入实测加速比
 21. **block_size 等超参优先用 `@triton.autotune`** — 参考 `celu.py` 的 autotune 配置。hardcode 需注释说明
-22. **使用规范命名 + 回填 PR 链接** — 提交前 `operator_registry.py lookup`，PR 创建后 `backfill`
-23. **所有异常记录到 pr状态记录.md** — 包括本地通过但 CI 不过、hardcode 超参、加速比偏低等
+22. **使用规范命名** — 规范名与生成名不同时，最终 diff 必须全部使用规范名
+23. **异常如实报告** — 本地通过但 CI 不过、hardcode 超参、加速比偏低等必须在交付说明里写明
 24. **连续提交多个 PR 必须限速** — 每提交完一个 PR 等 1-2 分钟再提交下一个，不要短时间内连着交。
     短时间涌入多个 PR 会让 CI 调度把一部分任务挤掉（排队被抢占或根本不触发），PR 看起来没跑全流水线，
     只能手动重跑。批量提交结束后逐个确认每个 PR 的 CI 任务都真的起来了
     （`gh pr checks <PR> --repo <upstream>`），缺的手动重触发
-
-## Data Sources
-
-| 文件 | 用途 | 列 |
-|------|------|-----|
-| `data/规范名.xlsx` Sheet1 | 规范命名映射 + PR 链接记录 | `算子名`, `算子名（规范命名）`, `代码路径` |
-| `data/第一批pr算子.xlsx` Sheet1 | 待提交算子列表 + 加速比 | `算子名称`(含aten::前缀), `加速比` |
-| `data/pr状态记录.md` | 提交流程中的失败/warning/低加速比/PR事件 | — |
-
-数据文件默认在 skill 的 `data/` 目录（首次使用可从 `flaggems-pr-submit` 复用），可用
-`FLAGGEMS_NORM_XLSX`、`FLAGGEMS_PR_XLSX` 覆盖。
 
 ## Environment
 
@@ -132,11 +121,10 @@ description and speedup data).
 
 **脚本目录: `/root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/`**
 
-### Phase 0: Name Lookup + Preflight（MUST DO FIRST）
+### Phase 0: Preflight（MUST DO FIRST）
 
 ```bash
 cd /root/FlagGems
-python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator_registry.py lookup <op>
 python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/preflight.sh <op> --repo-dir /root/FlagGems
 ```
 
@@ -329,14 +317,7 @@ Compared against the generic FlagGems implementation on Moore Threads (MUSA).
 **PR description rules:**
 - MUST be in English，含 Summary / Testing / Performance / Files Changed
 - Performance 表必须是实测加速比，按 dtype 分组，附 Arithmetic Mean Speedup
-- 特化性能不能比通用差；若某 shape 偏低如实展示并记录到 pr状态记录.md
-
-### Phase 7: Backfill PR Link（MUST DO）
-
-```bash
-python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator_registry.py \
-  backfill <op> <pr_url>
-```
+- 特化性能不能比通用差；若某 shape 偏低如实展示并在交付说明里写明
 
 ## Code Review Focus Points（摩尔线程特有）
 
@@ -359,7 +340,6 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 - `references/pr-checklist.md` — 逐项检查清单（摩尔线程版）
 - `references/common-issues.md` — 摩尔线程特化历史问题与解决
 - `references/naming.md` — 下划线前缀 / inplace 算子命名规则（摩尔线程复用上游版）
-- `data/README.md` — data 目录说明与数据文件解析顺序（本地 → 通用版共享）
 - `scripts/check_operator.py` — 自动化验证脚本（摩尔线程版）
 - 参考 kernel: `_mthreads/ops/celu.py`、`log.py`、`addmm.py`
 - `auto_gen/templates/generate_op_mthreads.md` — 摩尔线程算子生成模板（含 MUSA 环境说明）
@@ -369,4 +349,4 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/operator
 - 每批处理 10-20 个 PR，`gh` API 调用间 sleep 5s 避免限流
 - 每个 PR 提交之间间隔 1-2 分钟（Rule 24），连着交会让部分 CI 任务被挤掉
 - 优先 pointwise（更简单、review 更快）
-- 逐算子记录成功/失败到 `data/pr状态记录.md`
+- 逐算子在交付说明里报告成功/失败

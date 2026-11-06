@@ -64,4 +64,3 @@
 
 - [ ] `git diff --name-only upstream/infra-ci...HEAD` 只含摩尔线程特化文件
 - [ ] 运行 `scripts/check_operator.py <op>` 全部通过（0 errors）
-- [ ] PR 创建后 `operator_registry.py backfill <op> <pr_url>` 回填链接

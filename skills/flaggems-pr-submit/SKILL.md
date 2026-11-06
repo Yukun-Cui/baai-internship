@@ -10,7 +10,7 @@ description: >
 
 # FlagGems 算子 PR 提交 Skill
 
-提交流程：规范名查询 → 生成 source/impl/canonical 命名计划 → 建分支 → 提取 worktree 代码(6文件) → source/impl 到规范名的系统性重命名 → 脚本验证 → pre-commit → push → 创建 PR → 回填链接。
+提交流程：生成 source/impl/canonical 命名计划 → 建分支 → 提取 worktree 代码(6文件) → source/impl 到规范名的系统性重命名 → 脚本验证 → pre-commit → push → 创建 PR。
 
 ## Rules（违反会导致 PR 被拒）
 
@@ -23,8 +23,7 @@ description: >
 7. **PR 描述用英文** — 模板见 `references/pr-template.md`
 8. **禁止调用私有 API** — `torch._xxx` 在测试/benchmark 中禁用（脚本检查）。允许被测算子本身的 aten dispatch
 9. **每个 PR 只含一个 aten 算子** — 脚本通过 git diff 自动验证
-10. **使用规范命名** — 提交前用 `operator_registry.py lookup` 查询；如果生成名和规范名不同，最终 diff 必须全部使用规范名
-11. **回填 PR 链接** — PR 创建后必须 `operator_registry.py backfill`
+10. **使用规范命名** — 规范名由调用方通过 `--canonical-name` 显式给出；如果生成名和规范名不同，最终 diff 必须全部使用规范名
 12. **dtype 预检测** — 不确定时默认 `[torch.float32]`
 13. **gems_assert_close 不接受 rtol** — 只支持 atol（脚本检查）
 14. **非 pointwise benchmark 从 worktree 提取** — 必须覆盖 `set_shapes` 防止 CI 覆盖。不要用 `GenericBenchmark` + 自定义 `input_fn`
@@ -35,9 +34,8 @@ description: >
 19. **代码必须与 worktree 原版一致** — 不允许重写测试逻辑，仅允许 import 调整和格式化
 20. **提交前获取加速比** — `gen_pr_description.py` 或 CI 日志；本地 speedup 低于阈值只作为 warning/记录项，不阻断提交，但 benchmark 必须能运行且有数据
 21. **清理无效 if/else 分支** — pointwise_dynamic 已处理类型分发时不需要 isinstance
-22. **hardcode size 需加注释** — kernel BLOCK、test shapes、benchmark shapes 都需注释说明原因并记录到 pr状态记录.md
+22. **hardcode size 需加注释** — kernel BLOCK、test shapes、benchmark shapes 都需注释说明原因
 23. **测试参数用公共变量** — `utils.FLOAT_DTYPES`、`utils.POINTWISE_SHAPES` 等
-24. **所有异常记录到 pr状态记录.md**
 25. **未注册/未测试函数必须删除** — 含未调用的 `@use_tl_extra` 桩（脚本检查）
 26. **核心计算必须用 Triton** — anti_hack.py Layer 1 自动扫描（脚本检查）。`@use_tl_extra` + `pass` 是合法模式
 27. **PR 描述由脚本生成** — `gen_pr_description.py` 输出 JSON，映射到模板
@@ -116,15 +114,15 @@ description: >
 
 - `source_name`：生成器/worktree 文件名，例如 `Cross_Attention`。
 - `impl_name`：worktree 内部 wrapper / pytest mark / benchmark `op_name`，例如 `cross_attention`。
-- `canonical_name`：最终提交、注册、PR、backfill 使用的规范名，例如 `CrossAttention`。
+- `canonical_name`：最终提交、注册、PR 使用的规范名，例如 `CrossAttention`。
 
-如果 `operator_registry.py lookup <op>` 查到的规范名与输入名不同，或通过 `--canonical-name` 显式指定规范名，最终提交必须把 `source_name` 和 `impl_name` 都系统性重命名到 `canonical_name`：
+如果通过 `--canonical-name` 指定的规范名与输入名不同，最终提交必须把 `source_name` 和 `impl_name` 都系统性重命名到 `canonical_name`：
 
 - `src/flag_gems/ops/<canonical_name>.py`
 - `tests/test_<canonical_op_id>.py`
 - `benchmark/test_<canonical_op_id>.py`
 - wrapper 函数、`ops/__init__.py`、`__all__`、`_FULL_CONFIG`、`operators.yaml id/for`、pytest mark、benchmark `op_name` 全部使用规范名
-- PR branch、commit message、PR title、PR body、registry backfill 全部使用规范名
+- PR branch、commit message、PR title、PR body 全部使用规范名
 
 生成名只允许作为 worktree/source 读取来源；规范化后 `check_operator.py --strict` 会检查旧生成名是否残留在注册面。
 
@@ -201,9 +199,6 @@ python scripts/extract_from_worktree.py CrossAttention \
 | Upstream | 由 `--target` 决定（见下方「提交目标」） |
 | Worktrees | `/root/FlagGems/.worktrees/gen-<op>` unless `--repo-dir` overrides repo |
 | Token | `GH_TOKEN` from the current process environment |
-| Data | `/root/baai-internship/skills/flaggems-pr-submit/data/规范名.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/第一批pr算子.xlsx`, `/root/baai-internship/skills/flaggems-pr-submit/data/pr状态记录.md` |
-
-数据文件默认集中在 skill 的 `data/` 目录；如需临时覆盖，可使用 `FLAGGEMS_PR_SUBMIT_DATA_DIR`、`FLAGGEMS_NORM_XLSX`、`FLAGGEMS_PR_XLSX`、`FLAGGEMS_PR_RECORD_PATH`。
 
 不要在 skill、日志或 PR 内容中写入 token。默认使用 `/root/FlagGems`；如果调用方或批量脚本明确给出 `--repo-dir`，以调用方传入值为准。
 
@@ -222,15 +217,9 @@ python scripts/extract_from_worktree.py CrossAttention \
 
 下文命令示例默认 `experimental`；投 `mainline` 时给相关命令补 `--target mainline`。
 
-## Workflow（模型只需调用 3 个命令）
+## Workflow（模型只需调用 2 个命令）
 
 **脚本目录: `/root/baai-internship/skills/flaggems-pr-submit/scripts/`**
-
-### Phase 0: Name Lookup
-```bash
-cd /root/FlagGems
-python /root/baai-internship/skills/flaggems-pr-submit/scripts/operator_registry.py lookup <op>
-```
 
 ### Phase 1: Preparation
 ```bash
@@ -247,7 +236,7 @@ git checkout -b pr/<op> upstream/infra-ci
 ### Phase 2: Extract Code（一步完成，禁止手动编写）
 ```bash
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_worktree.py <op> --repo-dir /root/FlagGems
-# 如果本地规范名表尚未覆盖特殊映射，可显式指定：
+# 生成名 / 内部实现名 / 规范名不一致时显式指定：
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/extract_from_worktree.py <canonical-op> --source-name <worktree-op> --impl-name <worktree-wrapper-op> --canonical-name <canonical-op> --repo-dir /root/FlagGems
 ```
 脚本自动从 worktree 提取 6 个文件：kernel、test、benchmark、ops/__init__.py、__init__.py、operators.yaml。
@@ -263,7 +252,7 @@ operators.yaml 的 `stages` 强制写 `alpha: '5.5'`。
 python /root/baai-internship/skills/flaggems-pr-submit/scripts/submit_operator.py <op> --repo-dir /root/FlagGems --gpu <N>
 # 投 mainline 时加 --target mainline
 ```
-脚本串行执行 9 步：check_operator → pre-commit → **本地测试** → **本地 benchmark** → PR描述生成 → commit → push → 创建 PR → 回填链接。所选 target 的 upstream 仓库 / base 分支会贯穿全部步骤（fetch、冲突检查、PR base）。
+脚本串行执行 8 步：check_operator → pre-commit → **本地测试** → **本地 benchmark** → PR描述生成 → commit → push → 创建 PR。所选 target 的 upstream 仓库 / base 分支会贯穿全部步骤（fetch、冲突检查、PR base）。
 **任何正确性/注册/测试/benchmark 可运行性步骤失败立即中断退出。不允许手动执行单独步骤来绕过。低于 speedup 阈值只记录 warning，不中断。**
 
 ❌ **禁止手动创建 PR** — 不允许直接调用 `gh pr create` / `gh pr edit` / `gh pr merge`；创建 PR 和 PR body 必须由 `submit_operator.py` 完成。
@@ -337,12 +326,10 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 - `scripts/check_operator.py` — 自动化验证脚本（25+ 检查项）
 - `scripts/check_overload_consistency.py` — 多重载 yaml/benchmark/test 三方对齐检查
 - `scripts/gen_pr_description.py` — PR 描述数据生成
-- `scripts/operator_registry.py` — 规范名查询 + PR 链接回填
 - `scripts/fetch_review_comments.py` — 批量拉取待处理 review comments
 - `scripts/rebase_and_resolve.py` — 一键 rebase + 自动解 `__init__.py` 冲突 + push
 - `scripts/resolve_init_conflicts.py` / `scripts/resolve_ops_init_conflicts.py` — 单独解决注册文件排序冲突
 - `scripts/fix_ci.py` — 读取 CI 失败日志并自动修复常见问题
-- `scripts/query_domestic_gpu.py` — 查询国产卡测试结果（需 `data/国产GPU算子测试情况/`）；PR body 已不含 Multi-backend 段，仅供本地核对
 
 ## check_operator.py 自动检查项一览
 
@@ -451,7 +438,6 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 40. **AI 生成代码不可信** — anti-hack Layer 2 (dual-execution) 会验证 kernel 是否真正使用 Triton 计算。如检测到 hack，拦截 PR 不提交该算子。
 41. **固定 shape 必须注释** — 包括测试中的 parametrize shapes、benchmark 的 `self.shapes`、以及非 parametrize 的局部 `shape = (...)` 变量，上方必须有 `#` 注释说明选择依据。
 42. **dtype 硬编码必须注释或改用常量** — 如 `[torch.float32, torch.float16, torch.bfloat16]` 需改为 `utils.FLOAT_DTYPES`（测试）/ `consts.FLOAT_DTYPES`（benchmark），或在上方加注释说明原因。
-43. **异常自动记录** — `submit_operator.py` 的 `fatal()` 自动追加事件到 `data/pr状态记录.md`，无需手动记录。
 44. **最终门禁防回归** — pre-commit 或 commit 后必须再次执行 strict checker / commit message / changed files 检查，避免已覆盖规则在 push 前被改坏。
 
 ## 失败处理（确定性规则，无需判断）
@@ -464,7 +450,6 @@ python /root/baai-internship/skills/flaggems-pr-submit/scripts/fix_ci.py <PR_NUM
 | benchmark 失败 | 修复 benchmark 代码后重新运行脚本 | ❌ 提交无性能数据的 PR |
 | speedup < 阈值 | 继续提交，记录 `LOW_SPEEDUP` 并在 PR 描述中如实展示 | ❌ 伪造或隐藏性能数据 |
 | PR 创建失败 | 检查 token/网络后重试 | ❌ 手动用 gh 命令绕过 |
-| 回填失败 | 手动执行 `operator_registry.py backfill` | 可接受，非阻塞 |
 
 ## 禁止的操作（❌ 表示绝对禁止，不是建议）
 
