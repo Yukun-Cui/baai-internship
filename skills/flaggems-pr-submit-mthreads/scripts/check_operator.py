@@ -147,6 +147,7 @@ class OperatorChecker:
 
         self._check_duplicate_functions(content)
         self._check_line_length(content)
+        self._check_black_format()
 
         # 导出函数 / jit kernel
         self.exported = [
@@ -189,6 +190,111 @@ class OperatorChecker:
             warn(f"行长 >120: 行 {long_lines[:5]}{'...' if len(long_lines) > 5 else ''}")
         else:
             ok("行长均 ≤120")
+
+    def _check_black_format(self):
+        """上游 code-style 跑 black 26.5.1（行宽 88）；这里必须真跑一遍。
+
+        自订规则（行长 ≤120 / 无尾随空格 / AST 可解析）通过，不代表 black 会放过。
+        历史事故：9 个 PR 因 black 88 列折叠问题在 CI code-style 全部挂掉。
+        """
+        files = [self.kernel_path, self.ops_init_path]
+        files = [f for f in files if os.path.isfile(f)]
+        if not files:
+            return
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "black", "--check", "--diff"] + files,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            self.warnings.append("未安装 black，无法校验 code-style（请 pip install black==26.5.1）")
+            warn("未安装 black，跳过格式校验 — CI 的 code-style 会跑它")
+            self._check_isort_flake8()
+            return
+        if proc.returncode == 0:
+            ok("black --check 通过（行宽 88，与 CI code-style 一致）")
+            self._check_isort_flake8()
+            return
+        if "No module named" in (proc.stderr or ""):
+            self.warnings.append("未安装 black，无法校验 code-style")
+            warn("未安装 black，跳过格式校验 — 请 pip install black==26.5.1")
+            self._check_isort_flake8()
+            return
+        self.errors.append(
+            "black --check 未通过（上游 code-style 会失败）。"
+            "修复：python3 -m black <kernel> <__init__.py> 后重新提交"
+        )
+        fail("black --check 未通过 — CI 的 code-style 会失败")
+        for line in (proc.stdout or "").splitlines()[:20]:
+            print(f"      {line}")
+        if (proc.stderr or "").strip():
+            print(f"      {proc.stderr.strip()[:400]}")
+
+        self._check_isort_flake8()
+
+    def _check_isort_flake8(self):
+        """code-style 还跑 isort(--profile black -o packaging) 和 flake8。
+
+        只过 black 不够：isort 排序、flake8 的 E402(导入位置)/F811(重复导入)
+        同样是必过项，加 compliance 脚手架时最容易踩。
+        """
+        files = [self.kernel_path, self.ops_init_path]
+        files = [f for f in files if os.path.isfile(f)]
+        if not files:
+            return
+
+        def run(args):
+            try:
+                return subprocess.run(
+                    [sys.executable, "-m"] + args, capture_output=True, text=True
+                )
+            except FileNotFoundError:
+                return None
+
+        # isort
+        # IMPORTANT: `-p flag_gems` is required to reproduce CI.  In the full repo
+        # checkout isort auto-detects src/flag_gems as first-party and inserts a
+        # blank line between the stdlib/third-party block and the flag_gems block;
+        # running inside a worktree without this flag does NOT split them, so the
+        # local check would pass while CI rule-check fails.
+        proc = run(
+            ["isort", "--check-only", "--profile", "black", "-o", "packaging",
+             "-p", "flag_gems"] + files
+        )
+        if proc is None or "No module named" in (proc.stderr or ""):
+            self.warnings.append("未安装 isort，无法校验 code-style")
+            warn("未安装 isort，跳过 — 请 pip install isort")
+        elif proc.returncode == 0:
+            ok("isort --check 通过（--profile black -o packaging -p flag_gems）")
+        else:
+            self.errors.append(
+                "isort --check 未通过（code-style 会失败）。"
+                "修复：python3 -m isort --profile black -o packaging <file>"
+            )
+            fail("isort --check 未通过 — CI 的 code-style 会失败")
+            for line in (proc.stdout or "").splitlines()[:10]:
+                print(f"      {line}")
+
+        # flake8
+        proc = run([
+            "flake8", "--max-line-length=120",
+            "--ignore=F405,E731,W503,E203,E701,E704",
+        ] + files)
+        if proc is None or "No module named" in (proc.stderr or ""):
+            self.warnings.append("未安装 flake8，无法校验 code-style")
+            warn("未安装 flake8，跳过 — 请 pip install flake8")
+        elif proc.returncode == 0:
+            ok("flake8 通过（含 E402 导入位置 / F811 重复导入）")
+        else:
+            self.errors.append(
+                "flake8 未通过（code-style 会失败），常见 E402/F811。"
+                "修复：把 import 全部放在文件顶部且不重复"
+            )
+            fail("flake8 未通过 — CI 的 code-style 会失败")
+            for line in (proc.stdout or "").splitlines()[:10]:
+                print(f"      {line}")
+
 
     # -------------------------------------------------------------- ops __init__
     def check_ops_init(self):

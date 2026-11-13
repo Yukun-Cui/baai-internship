@@ -42,7 +42,7 @@ description and speedup data).
 
 **以下规则为强制执行项，违反会导致 PR 被拒：**
 
-1. **先跑脚本，再 commit** — 每次 commit 前必须运行 `check_operator.py` 并确认 0 errors
+1. **先跑脚本，再 commit** — 每次 commit 前必须运行 `check_operator.py`（0 errors）**和 `run_precommit.sh --staged`**（全部 Passed）；两者都过才允许推送 / 创建 PR
 2. **必须先确认通用算子已存在上游** — 摩尔线程特化覆盖的是通用层已有算子。提交前必须确认
    `git show upstream/infra-ci:src/flag_gems/ops/<op>.py` 成功（或该算子在通用层有等价实现）。
    如果通用算子还没 merge，**先提交通用版**（用 `flaggems-pr-submit` skill），再提交摩尔线程特化版
@@ -101,6 +101,27 @@ description and speedup data).
     短时间涌入多个 PR 会让 CI 调度把一部分任务挤掉（排队被抢占或根本不触发），PR 看起来没跑全流水线，
     只能手动重跑。批量提交结束后逐个确认每个 PR 的 CI 任务都真的起来了
     （`gh pr checks <PR> --repo <upstream>`），缺的手动重触发
+25. **提交前必须跑真实 `pre-commit`，并验证「将要推送的内容」** — CI 的 `code-style` /
+    `rule-check-required` 跑的就是仓库 `.pre-commit-config.yaml`（black 26.5.1 行宽 **88**、
+    isort 5.12.0 `--profile black -o packaging`、flake8 含 E402/F811 等），
+    **不要手工拼命令去猜 CI 行为**。
+    ```bash
+    pip install -q pre-commit            # 本机 4.6.2
+    export HTTPS_PROXY=<proxy>           # 首次需联网装 hook 环境
+    cd /root/FlagGems
+    # (1) worktree 文件（注意用主仓库相对路径）
+    pre-commit run --files \
+      .worktrees/gen-<op>/src/flag_gems/runtime/backend/_mthreads/ops/<op>.py \
+      .worktrees/gen-<op>/src/flag_gems/runtime/backend/_mthreads/ops/__init__.py
+    # (2) 必做：验证真正要推送的内容（__init__.py 是从 master 重建的，
+    #     worktree 那份是旧基线，只查它会漏问题）→ 见 Phase 4 Step 2
+    ```
+    **任何 hook 报 Failed 都不允许创建/更新 PR。**
+    > 踩过的坑（都是没跑真 pre-commit 导致的）：
+    > - 用自订「行长 ≤120 + 无尾随空格 + AST」代替，9 个 PR 全因 black 88 列折叠挂掉；
+    > - 漏跑 isort（且 worktree 下不带 `-p flag_gems`，分组空行与 CI 不一致），9 个 PR 全挂；
+    > - 加 compliance 脚手架把 `import triton` 挪到 `_SUPPORTED_DTYPES` 之后 → E402/F811；
+    > - 重建的 `__init__.py` 里 90 列的 from-import 未折行 → #8973 的 rule-check 挂掉。
 
 ## Environment
 
@@ -246,16 +267,103 @@ python /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/check_op
 
 **All errors must be fixed before proceeding.**
 
+### Phase 3.5: Pre-commit 强制校验（Rule 25）
+
+```bash
+cd /root/FlagGems
+export HTTPS_PROXY=<proxy>       # 首次运行需联网安装 hook 环境
+bash /root/baai-internship/skills/flaggems-pr-submit-mthreads/scripts/run_precommit.sh <op> --staged
+```
+
+`--staged` 会做两层校验：
+1. worktree 里的 kernel + `__init__.py`
+2. **将要推送的内容**（`__init__.py` 从 master 重建 + 插入注册行），这是关键 —— PR 里的
+   `__init__.py` 不是 worktree 那份，只查 worktree 会漏问题（#8973 就是这样挂的）
+
+**任何 Failed 都不得继续。** 细节与原理见 Phase 4。
+
 ### Phase 4: Pre-commit
+
+**必须跑真实 `pre-commit`，它就是 CI `code-style` job 执行的同一条命令。**
+
+上游 CI 的 code-style 跑的是 `pre-commit run --show-diff-on-failure --color=always --all-files`，
+本地用同一条链路才能得到一致结果。**不要手工拼 black/isort/flake8 去猜 CI 行为** —— 已经因为
+猜规则连续踩坑（black 88 列、isort 的 `-p flag_gems` 与 5.12.0 版本、E402/F811、`__init__.py`
+长 import 折行），每次都是本地"通过"、CI 红。
+
+#### Step 1：跑 worktree 里的文件
 
 ```bash
 cd /root/FlagGems
 pre-commit run --files \
-  src/flag_gems/runtime/backend/_mthreads/ops/<op>.py \
-  src/flag_gems/runtime/backend/_mthreads/ops/__init__.py
+  .worktrees/gen-<op>/src/flag_gems/runtime/backend/_mthreads/ops/<op>.py \
+  .worktrees/gen-<op>/src/flag_gems/runtime/backend/_mthreads/ops/__init__.py
 ```
-- 自动 fix (black/isort/end-of-file/trailing-whitespace) 后重新 stage 再跑
-- flake8 F401（未使用 import）需手动删除
+
+- ⚠️ `--files` 必须用**相对主仓库的路径**（worktree 文件在主仓库下用 `.worktrees/gen-<op>/...`）。
+  只写 `src/flag_gems/...` 会命中主仓库的同名文件、或者直接 Skipped（即使文件在 worktree 里）。
+- hook 自动修改文件后，重新跑一遍直到全部 `Passed`；Flake8 的 F401/F811/E402 需要人工改。
+
+#### Step 2（**必做，且是本 skill 最容易漏的一步**）：验证「将要推送的内容」
+
+PR 里的 `__init__.py` **不是 worktree 里那份**，而是从 `upstream/master` 版本重新插入注册行生成的
+（见 Phase 2.2 / 推送脚本）。worktree 的 `__init__.py` 往往是陈旧基线，**只查它会漏掉重建后引入的格式问题**。
+
+历史事故：#8973 的 kernel 检查全过，但重建出来的 `__init__.py` 里
+
+```python
+from .upsample_nearest3d_backward_grad_input import upsample_nearest3d_backward_grad_input
+```
+
+这一行 90 列 > 88，isort 要求折行，CI `rule-check-required` 直接失败。
+
+因此推送前必须**对实际要提交的两份内容**再跑一次 pre-commit：
+
+```bash
+# 方式 A（推荐）：从远端分支拉回真正推送的内容再检查
+mkdir -p /tmp/pc_check/src/flag_gems/runtime/backend/_mthreads/ops
+F=/tmp/pc_check/src/flag_gems/runtime/backend/_mthreads/ops
+gh api "repos/Yukun-Cui/FlagGems/contents/$REL/__init__.py?ref=pr/mthreads-<op>" -q .content | base64 -d > $F/__init__.py
+gh api "repos/Yukun-Cui/FlagGems/contents/$REL/<op>.py?ref=pr/mthreads-<op>" -q .content | base64 -d > $F/<op>.py
+pre-commit run --files $F/__init__.py $F/<op>.py     # 必须无 Failed
+```
+
+```bash
+# 方式 B：推送前在本地用「master 的 __init__.py + 插入注册行」生成，再检查
+```
+
+**只要有任何 hook 报 Failed，就不允许创建 / 更新 PR。**
+
+#### 生成 `__init__.py` 注册行时必须处理折行
+
+isort 会把超过 88 列的 from-import 折成多行，注册脚本必须自己折：
+
+```python
+one = f"from .{op} import {', '.join(funcs)}"
+if len(one) <= 88:
+    line = one
+else:
+    line = f"from .{op} import (\n" + "".join(f"    {f},\n" for f in funcs) + ")"
+```
+
+#### pre-commit 环境说明
+
+```bash
+pip install -q pre-commit          # 本机已是 4.6.2
+export HTTPS_PROXY=<proxy>         # 首次运行需联网拉取 hook 仓库（gitcode 源）
+cd /root/FlagGems && pre-commit run --files ...
+```
+
+- 首次运行会安装 clang-format / isort / black 等 hook 环境，耗时几分钟，之后复用。
+- hook 版本以 `.pre-commit-config.yaml` 为准（black 26.5.1、isort 5.12.0、flake8 args 等），
+  **不要**自己另装版本去对齐 —— 直接用 pre-commit 即可，它按配置安装正确版本。
+
+> ⚠️ **不要用自订规则代替 pre-commit**：`black` 默认 **88 列**（不是 120）；
+> isort 需要 `--profile black -o packaging`，且在完整仓库里会把 `flag_gems` 识别为
+> first-party（worktree 子目录下识别不到，必须补 `-p flag_gems` 才能复现 CI）；
+> flake8 的 **E402**（import 不在文件顶部）与 **F811**（重复 import）不在 ignore 列表里，
+> 加 compliance 脚手架时最容易踩。
+> 「行长 ≤120」「无尾随空格」「AST 可解析」三条都通过，**不代表** pre-commit 会放过这个文件。
 
 ### Phase 5: Commit & Push
 
