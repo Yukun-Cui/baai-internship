@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# preflight.sh <op> [--repo-dir DIR]
+# preflight.sh <op> [--repo-dir DIR] [--base-branch BRANCH]
 # 摩尔线程特化提交前预检：worktree kernel、通用算子存在上游、摩尔线程特化不存在上游、
 # 上游 test/benchmark 复用判定、git author、benchmark 数据。
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-OP="${1:?Usage: preflight.sh <op> [--repo-dir DIR]}"
+OP="${1:?Usage: preflight.sh <op> [--repo-dir DIR] [--base-branch BRANCH]}"
 shift
 
 REPO_DIR=""
+BASE_BRANCH="${BASE_BRANCH:-master}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo-dir) REPO_DIR="$2"; shift 2 ;;
+        --base-branch) BASE_BRANCH="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -45,22 +47,22 @@ else
 fi
 
 # 2. 通用算子必须存在上游（摩尔线程特化覆盖通用算子）
-if git show "upstream/infra-ci:${GENERIC_OPS}/${OP}.py" &>/dev/null; then
-    ok "通用算子存在上游: ${GENERIC_OPS}/${OP}.py"
+if git show "upstream/${BASE_BRANCH}:${GENERIC_OPS}/${OP}.py" &>/dev/null; then
+    ok "通用算子存在 upstream/${BASE_BRANCH}: ${GENERIC_OPS}/${OP}.py"
 else
-    warn "通用算子未在 upstream/infra-ci 找到 — 确认通用版已 merge，否则先提交通用版"
+    warn "通用算子未在 upstream/${BASE_BRANCH} 找到 — 确认通用版已 merge，否则先提交通用版"
 fi
 
 # 3. 摩尔线程特化不能已存在上游
-if git show "upstream/infra-ci:${MTHREADS_OPS}/${OP}.py" &>/dev/null; then
+if git show "upstream/${BASE_BRANCH}:${MTHREADS_OPS}/${OP}.py" &>/dev/null; then
     fail "Upstream 已有摩尔线程特化: ${MTHREADS_OPS}/${OP}.py"
 else
-    ok "Upstream: 摩尔线程特化不存在（可以提交）"
+    ok "upstream/${BASE_BRANCH}: 摩尔线程特化不存在（可以提交）"
 fi
 
 # 4. Test 文件（复用上游已有）
 TEST_FILE="tests/test_${OP}.py"
-if git show "upstream/infra-ci:${TEST_FILE}" &>/dev/null; then
+if git show "upstream/${BASE_BRANCH}:${TEST_FILE}" &>/dev/null; then
     ok "Test file: upstream 已有 ${TEST_FILE} → 复用验证（不提交）"
 else
     warn "Test file: upstream 无 ${TEST_FILE} → 需新建（参考 tests/test_relu.py）"
@@ -68,7 +70,7 @@ fi
 
 # 5. Benchmark 文件（复用上游已有）
 BENCH_FILE="benchmark/test_${OP}.py"
-if git show "upstream/infra-ci:${BENCH_FILE}" &>/dev/null; then
+if git show "upstream/${BASE_BRANCH}:${BENCH_FILE}" &>/dev/null; then
     ok "Benchmark file: upstream 已有 ${BENCH_FILE} → 复用验证（不提交）"
 else
     warn "Benchmark file: upstream 无 ${BENCH_FILE} → 需新建"

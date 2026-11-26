@@ -51,9 +51,10 @@ GENERIC_OPS = "src/flag_gems/ops"
 
 
 class OperatorChecker:
-    def __init__(self, op_name, repo_dir):
+    def __init__(self, op_name, repo_dir, base_branch="master"):
         self.op_name = op_name
         self.repo_dir = repo_dir
+        self.base_branch = base_branch
         self.errors = []
         self.warnings = []
 
@@ -465,26 +466,28 @@ class OperatorChecker:
     def check_upstream(self):
         section("上游检查")
         # 通用算子必须存在上游
-        generic_ref = f"upstream/infra-ci:{GENERIC_OPS}/{self.op_name}.py"
+        generic_ref = f"upstream/{self.base_branch}:{GENERIC_OPS}/{self.op_name}.py"
         if self._git_show(generic_ref):
-            ok(f"通用算子存在上游: {GENERIC_OPS}/{self.op_name}.py")
+            ok(f"通用算子存在 upstream/{self.base_branch}: {GENERIC_OPS}/{self.op_name}.py")
         else:
-            self.warnings.append(f"通用算子 {GENERIC_OPS}/{self.op_name}.py 不在 upstream/infra-ci")
+            self.warnings.append(
+                f"通用算子 {GENERIC_OPS}/{self.op_name}.py 不在 upstream/{self.base_branch}"
+            )
             warn(f"通用算子未在上游找到（确认通用版已 merge，否则先提交通用版）")
 
         # 摩尔线程特化不能已存在上游
-        mth_ref = f"upstream/infra-ci:{MTHREADS_OPS}/{self.op_name}.py"
+        mth_ref = f"upstream/{self.base_branch}:{MTHREADS_OPS}/{self.op_name}.py"
         if self._git_show(mth_ref):
             self.errors.append(f"摩尔线程特化已存在上游: {MTHREADS_OPS}/{self.op_name}.py")
             fail(f"上游已有摩尔线程特化 — 不应重复提交")
         else:
-            ok("摩尔线程特化不在上游（可以提交）")
+            ok(f"摩尔线程特化不在 upstream/{self.base_branch}（可以提交）")
 
     def check_single_operator_pr(self):
         section("单算子 PR 检查")
         try:
             out = subprocess.run(
-                ["git", "diff", "--name-only", "upstream/infra-ci...HEAD"],
+                ["git", "diff", "--name-only", f"upstream/{self.base_branch}...HEAD"],
                 cwd=self.repo_dir, capture_output=True, text=True, check=True,
             ).stdout
         except subprocess.CalledProcessError:
@@ -556,10 +559,15 @@ def main():
         default=os.environ.get("FLAGGEMS_REPO", "/root/FlagGems"),
         help="FlagGems 仓库路径",
     )
+    parser.add_argument(
+        "--base-branch",
+        default=os.environ.get("FLAGGEMS_BASE_BRANCH", "master"),
+        help="上游 PR 目标分支（默认 master）",
+    )
     parser.add_argument("--list-files", action="store_true", help="仅输出涉及的文件列表")
     args = parser.parse_args()
 
-    checker = OperatorChecker(args.operator, args.repo_dir)
+    checker = OperatorChecker(args.operator, args.repo_dir, args.base_branch)
 
     if args.list_files:
         for f in checker.get_changed_files():

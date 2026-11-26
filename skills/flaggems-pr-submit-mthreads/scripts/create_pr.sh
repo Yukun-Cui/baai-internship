@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# create_pr.sh <op> [--repo-dir DIR] [--fork-owner OWNER] [--upstream REPO] [--dry-run]
+# create_pr.sh <op> [--repo-dir DIR] [--fork-owner OWNER] [--upstream REPO]
+#   [--base-branch BRANCH] [--dry-run]
 # 生成 PR description + 创建 upstream PR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-OP="${1:?Usage: create_pr.sh <op> [--repo-dir DIR] [--fork-owner OWNER] [--upstream REPO] [--dry-run]}"
+OP="${1:?Usage: create_pr.sh <op> [--repo-dir DIR] [--fork-owner OWNER] [--upstream REPO] [--base-branch BRANCH] [--dry-run]}"
 shift
 
 REPO_DIR=""
 FORK_OWNER=""
-UPSTREAM="flagos-ai/FlagGems-Experimental"
+UPSTREAM="flagos-ai/FlagGems"
 BENCH_LOG=""
 DRY_RUN=false
+BASE_BRANCH="${BASE_BRANCH:-master}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo-dir) REPO_DIR="$2"; shift 2 ;;
         --fork-owner) FORK_OWNER="$2"; shift 2 ;;
         --upstream) UPSTREAM="$2"; shift 2 ;;
+        --base-branch) BASE_BRANCH="$2"; shift 2 ;;
         --bench-log) BENCH_LOG="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -73,8 +76,6 @@ implementation via \`runtime.replace_customized_ops()\`.
 - \`src/flag_gems/runtime/backend/_mthreads/ops/${OP}.py\`: Moore Threads Triton kernel + fallback
 - \`src/flag_gems/runtime/backend/_mthreads/ops/__init__.py\`: Register import and \`__all__\`"
 fi
-
-BASE_BRANCH="infra-ci"
 
 if $DRY_RUN; then
     echo "=== DRY RUN: PR Preview ==="

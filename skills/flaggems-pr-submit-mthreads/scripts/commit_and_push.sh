@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# commit_and_push.sh <op> [--repo-dir DIR] [--fork REMOTE] [--dry-run]
+# commit_and_push.sh <op> [--repo-dir DIR] [--fork REMOTE]
+#   [--base-branch BRANCH] [--dry-run]
 # 验证分支 + stage 摩尔线程特化文件（通常 2 个）+ commit（无 AI 署名）+ push to fork
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-OP="${1:?Usage: commit_and_push.sh <op> [--repo-dir DIR] [--fork REMOTE] [--dry-run]}"
+OP="${1:?Usage: commit_and_push.sh <op> [--repo-dir DIR] [--fork REMOTE] [--base-branch BRANCH] [--dry-run]}"
 shift
 
 REPO_DIR=""
 FORK="fork"
 DRY_RUN=false
+BASE_BRANCH="${BASE_BRANCH:-master}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo-dir) REPO_DIR="$2"; shift 2 ;;
         --fork) FORK="$2"; shift 2 ;;
+        --base-branch) BASE_BRANCH="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -41,9 +44,9 @@ FILES=(
     "${MTHREADS_OPS}/__init__.py"
 )
 for extra in "tests/test_${OP}.py" "benchmark/test_${OP}.py"; do
-    # 只在该文件相对 upstream/infra-ci 有改动时才纳入（新建/修改）
+    # 只在该文件相对目标分支有改动时才纳入（新建/修改）
     if git status --porcelain "$extra" 2>/dev/null | grep -q .; then
-        if ! git show "upstream/infra-ci:${extra}" &>/dev/null; then
+        if ! git show "upstream/${BASE_BRANCH}:${extra}" &>/dev/null; then
             echo "[!] ${extra} 是新建文件（上游无）→ 纳入提交"
             FILES+=("$extra")
         else
